@@ -1,0 +1,247 @@
+---
+title: "DSA 8590 HW5"
+author: "Alexander Harriman"
+date: "2023-11-11"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#### Homework 5 - Ensemble Learning and Text Mining ####
+
+
+```{r, warning = FALSE, message = FALSE}
+set.seed(010)
+library(dplyr)
+library(caret)
+library(rpart)
+library(e1071)
+library(ipred)
+library(randomForest)
+library(tm)
+library(wordcloud)
+```
+
+
+
+#### Part I. Ensemble Learning in R ####
+
+# Download "bank_small.csv" data file from Canvas. Make sure you read the description of Question 1 (in HW5 pdf file) before doing this part. 
+
+```{r}
+bank <- read.csv('bank_small.csv', stringsAsFactors = TRUE)
+head(bank)
+```
+
+
+```{r}
+#Data Preparation for Modeling
+
+#Normalize the numeric variables
+normalize = function(x) {
+return((x-min(x))/(max(x)-min(x)))
+}
+
+normalBank <- bank |>
+  mutate_at(c(1,6,10,12:15), normalize)
+
+#Create the Cross-Validation
+folds <- createFolds(normalBank$y, k = 5)
+
+#Setting up the Final Data Frame
+modelType <- vector()
+numModels <- vector()
+fValue <- vector()
+```
+
+
+```{r}
+#Modeling Attempt 1: Bagging
+#Number of models vary from 50 to 250
+
+for(j in seq(50, 250, 50)){
+  fs <- vector()
+  for(test_rows in folds){
+    trainBank <- normalBank[-test_rows,]
+    testBank <- normalBank[test_rows,]
+    bagMod <- bagging(y ~ ., data = trainBank, nbagg = j)
+    pred <- predict(bagMod, testBank)
+    matrix <- confusionMatrix(pred, testBank$y, mode = 'prec_recall', positive = 'yes')
+    fs <- append(fs, matrix$byClass[7])
+  }
+  modelType <- append(modelType, 'Bagging')
+  numModels <- append(numModels, j)
+  fValue <- append(fValue, mean(fs))
+}
+```
+
+
+```{r}
+#Model Attempt 2: Random Forest Model
+#Same number of trees as the iterations for Bagging
+
+for(j in seq(50, 250, 50)){
+  fs <- vector()
+  for(test_rows in folds){
+    trainBank <- normalBank[-test_rows,]
+    testBank <- normalBank[test_rows,]
+    forest <- randomForest(y ~ ., data = trainBank, ntree = j)
+    pred <- predict(forest, testBank)
+    matrix <- confusionMatrix(pred, testBank$y, mode = 'prec_recall', positive = 'yes')
+    fs <- append(fs, matrix$byClass[7])
+  }
+  modelType <- append(modelType, 'Random Forest')
+  numModels <- append(numModels, j)
+  fValue <- append(fValue, mean(fs))
+}
+```
+
+
+```{r}
+#Model Attempt 3: Stacking
+fs <- vector()
+  for(test_rows in folds){
+    trainBank <- normalBank[-test_rows,]
+    testBank <- normalBank[test_rows,]
+    
+    #Base Learners
+    svm <- svm(y ~ ., data = trainBank, kernel = 'polynomial')
+    tree <- rpart(y ~ ., data = trainBank, method = 'class', parms = list(split = 'information'))
+    log <- glm(y ~ ., data = trainBank, family = binomial(link = 'logit'))
+    
+    #Predictions
+    logPred <- predict(log, testBank, type = 'response')
+    treePred <- predict(tree, testBank, type = 'class')
+    svmPred <- predict(svm, testBank)
+    
+    #New Test Data
+    testBank <- testBank |>
+      mutate(Log_Pred = logPred,
+             Tree_Pred = treePred,
+             SVM_Pred = svmPred)
+    
+    #Second Split
+    train2Rows <- createDataPartition(y = testBank$y, p = 0.5, list = FALSE)
+    train2Bank <- trainBank[train2Rows,]
+    test2Bank <- testBank[-train2Rows,]
+    
+    #Naive Bayes Combiner
+    bayes <- naiveBayes(y ~ ., data = train2Bank)
+    bayesPred <- predict(bayes, test2Bank)
+    
+    #Matrix
+    matrix <- confusionMatrix(factor(bayesPred), test2Bank$y, mode = 'prec_recall', 
+                              positive = 'yes')
+    fs <- append(fs, matrix$byClass[7])
+  }
+modelType <- append(modelType, 'Stacking')
+numModels <- append(numModels, 1)
+fValue <- append(fValue, mean(fs))
+```
+
+
+```{r}
+#Final Results
+
+finalResults <- data.frame(Model = modelType, Iterations = numModels, F_Value = fValue)
+
+finalResults
+
+bestMod <- finalResults |>
+  filter(F_Value == max(F_Value))
+
+bestMod
+```
+
+
+
+**Answer: The best model is a random forest model with 200 trees, which has an F value of 0.48.**
+
+#### Part II. Text Mining in R ####
+
+# Download "FB Posts.csv" data file from Canvas. Make sure you read the description of Question 2 (in HW5 pdf file) before doing this part.
+
+##1. Import the dataset into R, convert the text into a corpus;
+
+```{r}
+fb <- read.csv('FB Posts.csv')
+corpus <- Corpus(VectorSource(fb$Text))
+```
+
+
+
+##2. Print out the content of the 100-th posts;
+
+```{r}
+corpus[[100]]$content
+```
+
+
+
+##3. Remove all punctuations from the posts;
+
+
+```{r, warning = FALSE}
+noPun <- tm_map(corpus, removePunctuation)
+```
+
+
+##4. Conver all texts to lowercase;
+
+```{r, warning = FALSE}
+lower <- tm_map(noPun, tolower)
+```
+
+
+##5. Remove English stopwords;
+
+```{r, warning = FALSE}
+noStop <- tm_map(lower, removeWords, stopwords('english'))
+```
+
+
+##6. Perform Stemming;
+
+```{r, warning = FALSE}
+cleanFB <- tm_map(noStop, stemDocument)
+```
+
+
+##7. Obtain TF-IDF matrix of the corpus;
+
+```{r, warning = FALSE}
+#Normal Matrix
+matrix <- DocumentTermMatrix(cleanFB)
+
+#TF-IDF Matrix
+tfFB <- weightTfIdf(matrix)
+```
+
+
+
+##8. Report the top-10 most common words in the corpus;
+
+```{r}
+#Get Word Popularity and Order them
+
+wordFrequency <- colSums(as.matrix(matrix)) 
+sortedFrequency <- sort(wordFrequency, decreasing = TRUE)
+sortedFrequency[1:10]
+```
+
+
+
+##9. Make a wordcloud, set the minimum word frequency to be 5.
+
+```{r}
+wordcloud(words = names(sortedFrequency),
+          freq = sortedFrequency,
+          min.freq = 5,
+          scale = c(2,.25))
+```
+
