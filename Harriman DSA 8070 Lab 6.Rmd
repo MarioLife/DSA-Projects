@@ -1,0 +1,247 @@
+---
+title: 'DSA 8070 R Lab 6'
+author: "Alexander Harriman"
+date: 'Due: November 16, 2023'
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1
+
+In this problem, we will work with a summary, specifically the sample correlation matrix of data obtained from a study of depression among 294 respondents in Los Angeles, to conduct a canonical correlation analysis.
+
+
+### 1.1: Load the data summary
+
+**Code:**
+
+```{r, warning = FALSE, message = FALSE}
+library(ggplot2)
+library(GGally)
+library(ellipse)
+library(RColorBrewer)
+library(CCA)
+library(CCP)
+library(tidyverse)
+library(klaR)
+library(e1071)
+library(caret)
+library(expm)
+depr <- c(0.212, 0.124, 0.098, -0.164, 0.308, 0.044, -0.101, -0.207,
+          -0.106, -0.208, -0.158, -0.183, -0.180, -0.192, 0.492)
+LAdepr <- diag(6) / 2
+LAdepr[upper.tri(LAdepr)] <- depr
+LAdepr <- LAdepr + t(LAdepr)
+rownames(LAdepr) <- colnames(LAdepr) <- c("CESD", "Health", "Gender", "Age", "Edu", "Income")
+LAdepr <- as.data.frame(LAdepr)
+```
+
+
+### 1.2: Conduct a likelihood ratio test to determine whether conducting a canonical correlation analysis is necessary, and if so, determine how many canonical variates should be retained.
+
+**Code:**
+
+```{r}
+#Get the inputs for rho
+rho11 <- as.matrix(LAdepr[1:2, 1:2])
+rho22 <- as.matrix(LAdepr[-(1:2), -(1:2)])
+rho12 <- as.matrix(LAdepr[1:2, -(1:2)])
+rho21 <- as.matrix(LAdepr[-(1:2), 1:2])
+
+rhoInput <- solve(sqrtm(rho11)) %*% rho12 %*% solve(rho22) %*% rho21 %*% solve(sqrtm(rho11))
+
+rho <- sqrt(eigen(rhoInput)$values)
+
+#Wilks Test Parameters
+n <- 294 #For the number of respondents
+p <- 2
+q <- 4
+
+#Test
+p.asym(rho, n, p, q, tstat = 'Wilks')
+```
+
+**Answer: Based on the LRT, a CCA with 2 variates retained would be necessary. The p-value for the 1 to 2 variate and the 2 to 2 variate are both below any alpha value, suggesting their importance in the analysis.**
+
+### 1.3: Write down the canonical variate pair(s) and their associated canonical correlation(s). Briefly explain the results. 
+
+**Code:**
+
+```{r}
+groupings <- cc(LAdepr[1:2], LAdepr[3:6])
+
+groupings$names
+
+groupings$cor
+```
+
+**Answer: The first pair groups the CESD and Health variables into a Wellness Group. The second pair groups the Gender, Age, Edu, and Income variables into a Demographics Group.**
+
+**The CESD and Health variables have near perfect correlation with each other, indicating that the two variables are indicating nearly identical information. Meanwhile, there is a weaker (but still relatively strong) correlation between the four variables in the Demographics Group.**
+
+
+
+
+
+
+
+
+## Problem 2
+
+Perform a binary classification task to determine the `direction` of the market (i.e., whether it had a positive or negative return on a given day) based on the percentage returns from the previous day (`Lag1`) and two days prior (`Lag2`).
+
+### 2.1: Load the data and examine the relationship between the input (the percentage returns) and the output (direction). Briefly summarize your findings.
+
+**Code:**
+
+```{r, warning = FALSE, message=FALSE}
+library(ISLR2)
+data(Smarket)
+
+#Get the necessary columns
+
+market <- Smarket[2:3] |>
+  cbind(Smarket[9])
+
+head(market)
+
+
+#Boxplots of Lag Values 
+##Split by Direction
+
+boxplot(Lag1 ~ Direction, data = market)
+boxplot(Lag2 ~ Direction, data = market)
+
+
+#Lag2 vs. Lag1
+ggplot(market, aes(x = Lag1, y = Lag2, color = Direction)) +
+  geom_point()
+```
+
+**Answer: The days with an Up direction have slightly lower previous day percentage returns on average than the Down direction days. This trend is lessened when looking at the two-day lags.**
+
+**There is no clear trend between Lag1 and Lag2 when graphed against each other, and direction does not appear to play any role one way or another.**
+
+### 2.2: Perform the classification via linear discriminant analysis. Report the misclassification rate.
+
+**Code:**
+
+```{r}
+set.seed(820)
+
+#LDA Model
+ldaMod <- lda(Direction ~ ., data = market)
+
+partimat(Direction ~ ., data = market, method = 'lda')
+```
+
+**Answer: About 47.2% of the test data was misclassified.**
+
+
+
+### 2.3: Perform the classification via a logistic regression. Report the misclassification rate.
+
+
+**Code:**
+
+```{r}
+#Split into 75-25 Train/Test
+numRows <- createDataPartition(market$Direction, p = 0.75, list = FALSE)
+trainMark <- market[numRows,]
+testMark <- market[-numRows,]
+
+logMod <- glm(Direction ~ ., data = trainMark, family = binomial)
+
+#Predicting the test data
+predictions2 <- predict(logMod, newdata = testMark, type = 'response')
+predictionsClass <- ifelse(predictions2 >= 0.5, 'Up', 'Down')
+
+#Misclassification Rate
+1 - mean(predictionsClass == testMark$Direction)
+```
+
+
+**Answer: About 47.4% of the data is misclassified.**
+
+
+### 2.4: Perform the classification via a quadratic discriminant analysis. Report the misclassification rate.
+
+
+**Code:**
+
+```{r}
+partimat(Direction ~ ., data = market, method = 'qda')
+```
+
+**Answer: About 47% of the data is misclassified.**
+
+
+### 2.5: Perform the classification using a support vector machine. Report the misclassification rate.
+
+
+**Code:**
+
+```{r}
+#Use package tuner to get best model
+tuneMod <- tune(svm, Direction ~ ., data = market, kernel = 'linear',
+                ranges = list(cost = c(0.001, 0.01, 0.1, 1, 5, 10, 50, 100)))
+
+#Find error for best model
+errorValue <- as.data.frame(summary(tuneMod)[2]) 
+errorValue
+```
+
+**Answer: The misclassification rate is around 48.2%.**
+
+
+### 2.6: Repeat the above classification exercise for all the classifiers but use only the first 1,000 observations to train the classifiers while using the last 250 observations as the testing set. Report the out-of-sample misclassification rate and summarize your results.
+
+
+**Code:**
+
+```{r, warning = FALSE}
+trainMark <- market[1:1000,]
+testMark <- market[1001:1250,]
+
+costVect <- vector()
+misclass <- vector()
+
+for(i in 1:8){
+  svmMod <- svm(Direction ~ ., data = trainMark, kernel = 'linear',
+                cost = case_when(i == 1 ~ 0.001,
+                                 i == 2 ~ 0.01,
+                                 i == 3 ~ 0.1,
+                                 i == 4 ~ 1,
+                                 i == 5 ~ 5,
+                                 i == 6 ~ 10,
+                                 i == 7 ~ 50,
+                                 i == 8 ~ 100))
+  svmPred <- predict(svmMod, testMark)
+  matrix <- confusionMatrix(as.factor(svmPred), as.factor(testMark$Direction), 
+                            mode = 'prec_recall', 
+                            positive = 'Up')
+  costVect <- append(costVect, case_when(i == 1 ~ 0.001,
+                                         i == 2 ~ 0.01,
+                                         i == 3 ~ 0.1,
+                                         i == 4 ~ 1,
+                                         i == 5 ~ 5,
+                                         i == 6 ~ 10,
+                                         i == 7 ~ 50,
+                                         i == 8 ~ 100))
+  misclass <- append(misclass, 1 - matrix$overall[1])
+}
+
+finalResults <- data.frame(Cost = costVect, Misclass_Rate = misclass)
+
+finalResults
+```
+
+
+**Summary: The SVM performs better on average when using a true train/test split compared to using all data. When using a train/test split, about 43.6% of the data is misclassified, a decrease of around 5%.**
+
