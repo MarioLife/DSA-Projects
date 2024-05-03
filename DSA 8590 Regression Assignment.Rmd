@@ -1,0 +1,154 @@
+---
+title: "Harriman Hands on Regression"
+author: "Alexander Harriman"
+date: "2023-10-07"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Numeric Prediction in R
+# We need to load the following packages
+
+```{r, warning = FALSE, message = FALSE}
+library(caret)
+library(class)
+library(dplyr)
+library(glmnet)
+```
+
+
+
+
+# In this exercise, we use the "laptop.csv" file
+# Our goal is to predict the "Price" of a laptop based on its attributes
+
+# P1: Import the dataset. Split it to 80% training and 20% testing
+
+
+```{r}
+set.seed(184)
+laptop <- read.csv('laptop.csv')
+
+rowNums <- createDataPartition(y = laptop$Price, p = 0.8, list = FALSE)
+
+trainLap <- laptop[rowNums,]
+testLap <- laptop[-rowNums,]
+```
+
+
+# P2: Build a K-NN Model
+# Do you need to normalize the data?
+
+With HD.Size on a different scale than every other variable, it is important to normalize the data.
+
+
+```{r}
+#Normalize Data
+normalize = function(x){
+  return ((x - min(x))/(max(x) - min(x)))}
+
+normLaptop <- laptop |>
+  mutate_at(c(2:8), normalize)
+
+trainNorm <- normLaptop[rowNums,]
+
+testNorm <- normLaptop[-rowNums,]
+
+head(trainNorm)
+```
+
+
+# Examine the normalized dataset you got, what went wrong? Why?
+# Write your code below to fix it:
+
+The fully normalized dataset led to most of the variables having 0 or 1 values since many of the variables have discrete values, not continuous.
+
+```{r}
+normLaptop <- laptop |>
+  mutate_at(c(7), normalize)
+
+trainNorm <- normLaptop[rowNums,]
+
+testNorm <- normLaptop[-rowNums,]
+
+head(trainNorm)
+```
+
+
+# P3: Build a K-NN classifier with a k value of 50
+
+```{r}
+laptopKNN <- knnregTrain(train = trainNorm[,2:8],
+                         test = testNorm[,2:8],
+                         y = trainNorm[,1],
+                         k = 50)
+```
+
+
+# P4: Evaluate the performance of your K-NN model
+
+
+```{r}
+#Prepare the Values for MAE and RMSE
+actual = testNorm$Price
+error = laptopKNN - actual
+(MAE = mean(abs(error)))
+(RMSE = sqrt(mean(error^2)))
+
+
+```
+
+Answer: **The MAE is 10.32 and the RMSE is 14.30. Since the laptop prices are in the hundreds of dollars, this RMSE suggests that the model is doing a good job predicting laptop prices.** 
+
+# P5: Now, repeat P3 and P4 with different k values(e.g., 50-60)
+# Use a loop
+# Report RMSE
+
+```{r}
+k <- vector()
+rmseVect <- vector()
+
+for(i in 50:60){
+  laptopKNN <- knnregTrain(train = trainNorm[,2:8],
+                         test = testNorm[,2:8],
+                         y = trainNorm[,1],
+                         k = i)
+  actual = testNorm$Price
+  error = laptopKNN - actual
+  k <- append(k, i)
+  rmseVect <- append(rmseVect, sqrt(mean(error^2)))
+}
+
+results <- as.data.frame(cbind(k,rmseVect))
+
+results
+```
+
+
+# P6: Build a linear regression model 
+# Use cross-validation
+# Report mean RMSE
+
+
+```{r, warning = FALSE}
+#Using k = 5 for the number of folds
+cvLap <- createFolds(y = laptop$Price, k = 5)
+rmseVect <- vector()
+
+for(testRowNum in cvLap){
+  trainLap <- laptop[-testRowNum,]
+  testLap <- laptop[testRowNum,]
+  lapMod <- lm(Price ~ ., data = trainLap)
+  predictions <- predict(lapMod, testLap)
+  RMSE <- sqrt(mean((predictions - testLap[,1])^2))
+  rmseVect <- append(rmseVect, RMSE)
+}
+
+(mean(rmseVect))
+```
+
