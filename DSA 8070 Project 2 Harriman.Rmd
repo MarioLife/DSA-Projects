@@ -1,0 +1,289 @@
+---
+title: "DSA 8070 Project 2"
+author: "Alexander Harriman"
+date: "2023-11-19"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Question 1
+
+
+## Part 1: Load Data
+```{r}
+load("NA_MaxT_ERA.RData")
+NA_MaxT <- NA_MaxT - 273.15 # change from Kelvin to Celsius
+nlon <- length(NA_lon); nlat <- length(NA_lat)
+# numbers of lon/lat grid points
+nmon <- 12; nyr <- 39 # numbers of month/year
+```
+
+
+## Part 2: Monthly Average
+
+
+```{r}
+avg_by_mon <- array(dim = c(nlon, nlat, nmon, nyr))
+for (i in 1:nlon){
+  for (j in 1:nlat){
+    dat <- cbind(NA_MaxT[i, j,], as.factor(mon), as.factor(yr))
+    avg_by_mon[i,j,,] <- tapply(dat[,1], list(dat[, 2], dat[, 3]), mean)
+  }
+}
+```
+
+## Part 3: Anomalies
+
+```{r}
+maxT_temp <- apply(avg_by_mon, 1:3, function(x) x - mean(x, na.rm = T))
+# Change the data into lon-lat-month format
+maxT_anomalies <- array(dim = c(nlon, nlat, nmon * nyr))
+for (i in 1:nlon){
+  for (j in 1:nlat){
+    maxT_anomalies[i, j,] <- c(t(maxT_temp[, i, j,]))
+  }
+}
+```
+
+
+## Part 4: Singular Value Decomposition
+
+
+```{r}
+temp <- array(maxT_anomalies, c(nlon * nlat, nmon * nyr))
+# convert data into a row/column format
+ind <- is.na(temp[, 1])
+
+temp2 <- svd(temp)
+```
+
+
+
+## Question 1A
+
+```{r}
+#Cumulative Sum Screen Plot
+
+varExplain <- (cumsum(temp2$d^2)/sum(temp2$d^2))
+plot(1:50, varExplain[1:50], xlab = "# Components", ylab = "Variance Explained", pch = 16, cex = 0.8)
+#70% baseline
+abline(h = 0.7, col = "red", lwd = 2)
+grid()
+
+#Check the fourth value
+varExplain[4]
+```
+
+Answer: **4 components is enough to explain 70% of the variance within the data.**
+
+
+## Question 1B
+
+
+```{r}
+#Find the four components
+U1 <- matrix(NA, nlon , nlat)
+U1[!ind] <- temp2$u[, 1]; U1 <- matrix(U1, nlon , nlat)
+U2 <- matrix(NA, nlon , nlat)
+U2[!ind] <- temp2$u[, 2]; U2 <- matrix(U2, nlon , nlat)
+U3 <- matrix(NA, nlon , nlat)
+U3[!ind] <- temp2$u[, 3]; U3 <- matrix(U3, nlon , nlat)
+U4 <- matrix(NA, nlon , nlat)
+U4[!ind] <- temp2$u[, 4]; U4 <- matrix(U4, nlon , nlat)
+zr <- range(c(U1, U2, U3, U4), na.rm = TRUE)
+```
+
+
+```{r, warning = FALSE, message = FALSE}
+library(fields)
+library(maps)
+```
+
+
+```{r, warning = FALSE}
+#Plot the four components on the map
+set.panel(2, 2)
+par(oma = c(0, 0, 0, 0))
+ct <- tim.colors(256)
+par(mar = c(1, 1, 1, 1))
+
+image(NA_lon, NA_lat, U1, axes = FALSE, xlab = "", ylab = "", zlim = zr, col = ct)
+map("world2", add = TRUE, lwd = 2)
+box()
+image(NA_lon, NA_lat, U2, axes = FALSE, xlab = "", ylab = "", zlim = zr, col = ct)
+map("world2", add = TRUE, lwd = 2)
+box()
+image(NA_lon, NA_lat, U3, axes = FALSE, xlab = "", ylab = "", zlim = zr, col = ct)
+map("world2", add = TRUE, lwd = 2)
+box()
+image(NA_lon, NA_lat, U4, axes = FALSE, xlab = "", ylab = "", zlim = zr, col = ct)
+map("world2", add = TRUE, lwd = 2)
+box()
+```
+
+
+Answer: **The first principal component appears to show abnormally cold weather in the Northern region of the map, particularly the northern US and Canada. This is likely found during the winter, when these regions are capable of extremely low temperatures that Mexico and other nations farther south would rarely, if ever, experience.**
+
+**The second principal component seems to show abnormally warmer weather during the winter months, as the eastern half of North America tends to warm up faster than the western half from December to February. Since Death Valley is not seen as an abnormally warm environment and eastern Canada is shown as warm instead, this is the more likely outcome over naturally warmer weather in the US South.**
+
+**The third principal component acts similarly to the first, but more clearly indicating the greater anomalies in the southern half of North America. This, and not PC2, is likely showing abnormally warm weather in the US South, particularly with the desert of the Southwest seeing the largest abnormalities.**
+
+**The fourth principal component is less clear. This could be showing a more recent trend of greater warming in northeastern Canada due to the effects of climate change affecting the Arctic Circle. Eastern Canada is more mild than the West, so this warming would effect the East disproportionately. This warming has also brought more extreme weather to Mexico, although the relative cold of the United States is strange in this context. Since the fourth component only explains about 5% of the overall variation, this on its own could have noise in either Canada or Mexico, which muddles the underlying effect the PC is picking up on.**
+
+
+# Question 2
+
+```{r, warning = FALSE, message = FALSE}
+library(FactoMineR)
+```
+
+
+```{r}
+#Gather Data into Groups
+data(decathlon)
+
+decathlonX <- decathlon[7:10]
+decathlonY <- decathlon[1:6]
+```
+
+```{r, warning = FALSE, message = FALSE}
+library(CCA)
+library(CCP)
+```
+
+
+```{r, warning = FALSE}
+#Perform CCA
+
+rho <- cc(decathlonX, decathlonY)$cor
+
+#Paramters
+n <- dim(decathlon)[1]
+p <- length(decathlonX)
+q <- length(decathlonY)
+
+
+#Wilks Test
+p.asym(rho, n, p, q, tstat = 'Wilks')
+```
+
+
+```{r}
+#Find information about the 2 correlations
+decathlonCC <- cc(decathlonX, decathlonY)
+
+decathlonCC$cor[1:2]
+decathlonCC$xcoef[,1:2]
+decathlonCC$ycoef[,1:2]
+```
+
+Answer: **The two groups of decathlon variables can be explained using two canonical correlations, as the Wilks test fails to reject the null for the third and fourth correlation grouping.**
+
+**The first canonical group sees the variable groupings have a 72.3% correlation with each other, while the second group sees the variable groupings have a 63.5% correlation with each other.**
+
+
+
+# Question 3
+
+```{r, warning = FALSE, message = FALSE}
+library(mclust)
+library(caret)
+library(tidyverse)
+data(banknote)
+```
+
+## Train/Test Split
+
+```{r, warning = FALSE}
+numRows <- createDataPartition(banknote$Status, p = 0.6, list = FALSE)
+
+trainNote <- banknote[numRows,]
+testNote <- banknote[-numRows,]
+```
+
+
+## Logistic Regression
+
+```{r, warning = FALSE}
+logfit <- glm(Status ~ ., data = trainNote, family = binomial)
+logpred <- predict(logfit, newdata = testNote, type = "response")
+predCol <- as.factor(ifelse(logpred >= 0.5, 'genuine', 'counterfeit'))
+
+
+#Confusion Matrix
+confusionMatrix(testNote$Status, predCol)
+```
+
+Conclusions: **Using a 60-40 split, the classification model was able to predict all but one of the 80 test banknotes correctly. That one error did incorrectly say a counterfeit was genuine, which in practice would likely come with great cost, but otherwise the model does a very good job at splitting the data.**
+
+# Question 4
+
+
+## Load Data
+
+```{r, warning = FALSE, message = FALSE}
+library(HSAUR2)
+data("USairpollution")
+```
+
+
+## Create the Distance Matrix
+
+```{r}
+scalingMatrix <- apply(USairpollution, 2, function(x) (x - min(x)) / (diff(range(x))))
+
+distanceMatrix <- dist(scalingMatrix)
+```
+
+## Classical Method
+
+```{r}
+matrix2d <- cmdscale(distanceMatrix, k = 2, eig = TRUE)
+
+head(matrix2d)
+```
+
+
+## Plot Results
+
+```{r}
+par(las = 1, mgp = c(2, 1, 0), mar = c(3, 3, 1, 0.5))
+cities <- matrix2d$points
+plot(cities[, 1], cities[, 2], type = "n", xlab = "", ylab = "")
+text(cities[, 1], cities[, 2], labels = rownames(cities), cex = 0.8)
+```
+
+Answer: **There are three significant groups of outliers:**
+
+**1. Chicago is on an island of its own with a very high pollution count.**
+**2. New Orelans and Jacksonville are outliers among its fellow Southern cities.**
+**3. Phoenix and Albuquerque are outliers in both location and pollution compared to Western cities.**
+
+
+
+## Non-Metric Version
+
+
+```{r, warning = FALSE}
+library(MASS)
+nonMet <- isoMDS(distanceMatrix, k = 2)
+```
+
+## Plot Results
+
+```{r}
+par(las = 1, mgp = c(2, 1, 0), mar = c(3, 3, 1, 0.5))
+cities <- nonMet$points
+plot(cities[, 1], cities[, 2], type = "n", xlab = "", ylab = "")
+text(cities[, 1], cities[, 2], labels = rownames(cities), cex = 0.8)
+```
+
+
+
+Answer: **Phoenix is a slight outlier on location, but the only major outlier is once again Chicago due to its high pollution count. The cities are more spread out using the non-metric approach with the exception of the highly concentrated center of the plot.**
