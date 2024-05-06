@@ -1,0 +1,552 @@
+---
+title: "DSA 8020 Project 3"
+author: "Alexander Harriman"
+date: "2023-04-20"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Problem 1
+
+In this study, data from the ERA-Interim will be analyzed to determine the annual average temperature at Globe Life Field in Arlington, Texas.
+
+The data takes weather information from 1979-2017 to determine annual temperature trends and predict the data in 2018. An ARMA model will be used to create those predictions. 
+
+## Find Location
+
+The ERA-Interim takes data using grid cells spread out to an area of 80 kilometers. The first step in the process is determining the nearest cell to Arlington.
+
+## Load Data
+
+```{r}
+load("NA_MaxT_ERA.RData")
+NA_MaxT <- NA_MaxT - 273.15
+nlon <- length(NA_lon); nlat <- length(NA_lat)
+nmon <- 12; nyr <- 39
+```
+
+
+## Load in Latitude and Longitude
+
+Once the latitude and longitude for Arlington is factored into the code, the cell closest to Arlington can be determined. This code will then be checked to ensure the accuracy of the cell location.
+
+```{r}
+library(fields)
+Arlington.lon.lat <- c(-97.12278, 32.705002) #Longitude, Latitude of Arlington
+
+dist2TXR <- rdist.earth(matrix(Arlington.lon.lat, 1, 2),
+expand.grid(NA_lon, NA_lat), miles = F)
+
+id <- which.min(dist2TXR)
+(lon_id <- id %% nlon)
+(lat_id <- id %/% nlon + 1)
+# Check
+(rdist.earth(matrix(Arlington.lon.lat, 1, 2),
+matrix(c(NA_lon[lon_id], NA_lat[lat_id]), 1, 2), miles = F)
+== min(dist2TXR))
+
+```
+
+## Create Initial Aggregation
+
+Now that the closest cell has been determined, the analysis can begin. The first step in this process involves aggregating the data to get a clearer picture of what information is present in the dataset.
+
+```{r}
+ts_daily <- NA_MaxT[lon_id, lat_id,]
+ts_yearly <- tapply(ts_daily, list(yr), mean)
+```
+
+The code creates two time series for the data: a daily time series and an annual time series.
+
+## Time Series Analysis: Annual Trends
+
+This analysis will be run on the yearly time series data. Plotting the information will indicate any trends, whether they be seasonal, polynomic, or otherwise within the average annual temperature across the 39 years of data present in the model.
+
+```{r}
+plot(ts_yearly, xlab = 'Year Since 1979', ylab = 'Average Annual Temperature')
+```
+
+### Findings
+
+The annual data appears to remain relatively consistent for the first 20 years of the data, which spans all of the years up to the turn of the millennium. However, from there, the data becomes much more volatile as the 2000s progress.
+
+### Checking for Linear Trend
+
+While the data does not appear to have a linear trend, a model will be created for significance before running any time series models.
+
+```{r}
+#Create time variable
+time <- seq(1:39)
+
+yearLinTrend <- lm(ts_yearly ~ time)
+summary(yearLinTrend)
+
+plot(ts_yearly, xlab = 'Year Since 1979', ylab = 'Average Annual Temperature')
+abline(yearLinTrend, col = 'blue')
+```
+
+The model finds a positive coefficient for temperature as the year increases. Since the linear model is statistically significant at alpha = 0.01, there is evidence at the 99% level indicating a linear trend within the annual temperature time series data in Arlington.
+
+### Removing Linear Trend
+
+In order to get the most accurate ARMA model for the time series, this linear trend must be removed first.
+
+```{r}
+yearDetrend <- resid(yearLinTrend)
+
+plot(yearDetrend, xlab = 'Year Since 1979', ylab = 'Residuals')
+abline(h = 0, col = 'red')
+```
+
+This detrended model will undergo the ARMA process.
+
+
+## Determine ARMA Model: ACF and PACF Testing
+
+In order to figure out the best place to start for ACF and PACF modeling, a plot of both will be run on the detrended data. 
+
+```{r}
+acf(yearDetrend, xlab = "Lag in years", ylab = "sample ACF", main = "")
+pacf(yearDetrend, xlab = "Lag in years", ylab = "sample PACF", main = "")
+```
+
+In the ACF model, only the 0 lag has a sample ACF outside of the significance boundaries. Meanwhile, no lag values have a sample PACF outside of the significance boundaries. 
+
+Therefore, an AR(1) and MA(1) are both possible options. Determining the best model will require using AIC calculations and Ljung-Box Tests, as the plots are not as clear.
+
+## Testing ARMA Models
+
+Multiple ARMA models will be run and tested using the above methods. The best model determined by the Ljung-Box Test and AIC calculations will be the one chosen to model the de-trended Arlington temperature model.
+
+### AR(1)
+
+```{r}
+ar1YearMod <- arima(yearDetrend, order = c(1,0,0))
+arResid <- resid(ar1YearMod)
+plot(time, arResid)
+
+#Determining ACF and PACF Values
+
+acf(arResid, ylab = "sample ACF", xlab = "lag (year)")
+pacf(arResid, ylab = "sample PACF", xlab = "lag (year)")
+
+#Running Ljung-Box Test
+Box.test(arResid, type = 'Ljung-Box')
+
+
+#Calculating AIC for the Model
+AIC(ar1YearMod)
+```
+
+The AR(1) model returns an ACF and PACF plot similar to the initial, where no p or q values greater than 0 have an ACF/PACF outside of the significance region. 
+
+This model has an AIC of **102.81**, and the Ljung-Box Test returns a p-value much greater than any alpha value. Therefore, the test suggests all of the trends are removed by an AR(1) model.
+
+
+### MA(1)
+
+```{r}
+ma1YearMod <- arima(yearDetrend, order = c(0,0,1))
+maResid <- resid(ma1YearMod)
+plot(time, maResid)
+
+#Determining ACF and PACF Values
+
+acf(maResid, ylab = "sample ACF", xlab = "lag (year)")
+pacf(maResid, ylab = "sample PACF", xlab = "lag (year)")
+
+#Running Ljung-Box Test
+Box.test(maResid, type = 'Ljung-Box')
+
+
+#Calculating AIC for the Model
+AIC(ma1YearMod)
+```
+
+The MA(1) model returns an ACF and PACF plot similar to the initial, where no p or q values greater than 0 have an ACF/PACF outside of the significance region. 
+
+This model has an AIC of **102.81**, and the Ljung-Box Test returns a p-value much greater than any alpha value. Therefore, the test suggests all of the trends are removed by an MA(1) model.
+
+
+### White Noise Model
+
+To make sure there is any trend at all, a white noise plot will also be run against the AR(1) and MA(1) models.
+
+```{r}
+wnYearMod <- arima(yearDetrend, order = c(0,0,0))
+wnResid <- resid(wnYearMod)
+plot(time, wnResid)
+
+#Determining ACF and PACF Values
+
+acf(wnResid, ylab = "sample ACF", xlab = "lag (year)")
+pacf(wnResid, ylab = "sample PACF", xlab = "lag (year)")
+
+#Running Ljung-Box Test
+Box.test(wnResid, type = 'Ljung-Box')
+
+
+#Calculating AIC for the Model
+AIC(wnYearMod)
+```
+
+With the white noise model, the AIC value is less than both the AR(1) and the MA(1) model's AIC value. The WN model also has a Ljung-Box model that is much greater than any alpha, suggesting it does the job in finding the trend.
+
+### Final Findings
+
+Based on these models, any of an AR(1), MA(1), and WN model would work for plotting the yearly trend data in Arlington. Since the white noise model has a slightly lower AIC value, it will be used to create the final prediction.
+
+## Creating Forecasts
+
+Now that the model has been selected, it will be used to predict the 2018 average temperature in Arlington.
+
+```{r}
+#Fitting the Model
+library(forecast)
+fit <- Arima(ts_yearly, order = c(0,0,0), include.drift = TRUE)
+prediction <- autoplot(forecast(fit, h = 1, level = c(95)))
+prediction
+```
+
+Based on the prediction, the average temperature in 2018 would be around **25.9 degrees**. The 95% confidence level of the prediction falls in a range of about **(24.3, 27.6)** degrees.
+
+
+# Problem 2
+
+In this project, the monthly temperature averages from Arlington will be analyzed instead of the annual temperature averages. The project will be undertaken in a similar fashion to the annual temperature analysis.
+
+
+## Create Initial Aggregation
+
+The same cell from the yearly analysis will be used for the monthly analysis.
+
+```{r}
+ts_monthly <- as.data.frame(tapply(ts_daily, list(mon,yr), mean))
+```
+
+
+
+## Time Series Analysis: Monthly Trends
+
+Just like the annual data, the first step is determining what kind of trends exist within the monthly data. Since the data is based on months and not years, and it focuses on temperature, a naturally occurring seasonal trend will be in the data and will also need to be accounted for.
+
+```{r}
+temperatures <- vector()
+#Convert to a Vector
+for(i in 1:dim(ts_monthly)[2]){
+  temperatures <<- append(temperatures, ts_monthly[,i])
+}
+
+temperatures
+
+#Create month vector
+months <- 1:length(temperatures)
+
+plot(months, temperatures, type = 'l', xlab = 'Month', ylab = 'Monthly Average Temperature')
+```
+
+
+Based on the annual temperature data, there is a possible linear trend. As a result, STL Decomposition will be performed on the data first. Using this method will show which type of trend, if either or both, needs to be handled. 
+
+```{r}
+library(TSA)
+#Turning the Vector of temperatures into a monthly time series
+temperature <- ts(temperatures, frequency = 12) 
+
+
+#Finding the Monthly Trend
+
+month = season(temperature)
+seasonalTemp <- lm(temperature ~ month - 1) #So January appears as such in model
+
+summary(seasonalTemp)
+```
+
+The model does find a significant difference in the monthly temperatures, as is expected for weather data.
+
+### Plotting the Monthly Trend
+
+```{r}
+plot(temperatures, type = 'l')
+points(seasonalTemp$fitted.values, col = 'blue')
+```
+
+Overall, the predicted values tend to follow the actual values very closely. Since the model has an adjusted R^2 of 0.994, the seasonal trend has been identified within the data.
+
+## Removing Seasonal Trend
+
+Now that the seasonal trend has been figured from the data, it must be removed to continue with the analysis.
+
+```{r}
+noSeason <- diff(temperatures, lag = 12)
+plot(noSeason, xlab = 'Month since January 1979', ylab = 'Value without Seasonal Trend')
+```
+
+## Analyzing Polynomial Trend
+
+With the seasonal trend removed from the monthly temperature data, the next step is to check for linear or other polynomic trends. The same methods used in the annual analysis will be used on the non-seasonal data.
+
+```{r}
+months <- 1:(length(temperatures) - 12)
+monLinTrend <- lm(noSeason ~ months)
+summary(monLinTrend)
+
+plot(noSeason, xlab = 'Month Since 1979', ylab = 'Value without Seasonal Trend')
+abline(monLinTrend, col = 'blue')
+```
+
+The data without any seasonal trend has no linear relationship; the linear model is centered around the y = 0 line. Therefore, there is no linear relationship to remove that was not already accounted for in the seasonal trend.
+
+
+## Testing ACF and PACF to Determine Possible Models
+
+The noSeason model has all of the trends removed from it. With this model found, the next step is to find the optimal ARMA model. 
+
+The first step of this process is to plot the ACF and PACF models to see the potentially best p and/or q values for the ARMA model.
+
+```{r}
+acf(noSeason, xlab = "Lag in months", ylab = "sample ACF", main = "")
+pacf(noSeason, xlab = "Lag in months", ylab = "sample PACF", main = "")
+```
+
+In the ACF plot, there are a couple of extreme outliers around the 12-13 lag marks. However, the first lag whose value is within the significance boundaries is at p = 5. Thus, an AR(4) model will be considered.
+
+As for the PACF plot, the results are less clear. The plot again has several late lags with values beyond the significance boundaries. However, since only q = 1 exists beyond this boundary before several q values fall within it, an MA(1) model will be considered.
+
+With both trends appearing, an ARMA(4,1) model will also be run to combine the effects of the ACF and PACF plots.
+
+
+## Testing ARMA Models
+
+With some defined values for AR(p), MA(q), and ARMA(p,q) models, testing will begin to determine the best choice of the three.
+
+
+### AR(4)
+
+
+```{r}
+ar4MonthMod <- arima(noSeason, order = c(4,0,0))
+arResid <- resid(ar4MonthMod)
+plot(months, arResid)
+
+#Determining ACF and PACF Values
+
+acf(arResid, ylab = "sample ACF", xlab = "lag (year)")
+pacf(arResid, ylab = "sample PACF", xlab = "lag (year)")
+
+#Running Ljung-Box Test
+Box.test(arResid, type = 'Ljung-Box')
+
+
+#Calculating AIC for the Model
+AIC(ar4MonthMod)
+```
+
+The AR(4) model returns the same outlier lag values as the initial model for both ACF and PACF, but the first few lags are within the significance boundaries on both. This, combined with a Ljung-Box test resulting in a failure to reject the null, indicates that all of the trends are removed by an AR(4) model.
+
+The model results in an AIC of **2129.81**.
+
+
+### MA(1)
+
+```{r}
+ma1MonMod <- arima(noSeason, order = c(0,0,1))
+maResid <- resid(ma1MonMod)
+plot(months, maResid)
+
+#Determining ACF and PACF Values
+
+acf(maResid, ylab = "sample ACF", xlab = "lag (year)")
+pacf(maResid, ylab = "sample PACF", xlab = "lag (year)")
+
+#Running Ljung-Box Test
+Box.test(maResid, type = 'Ljung-Box')
+
+
+#Calculating AIC for the Model
+AIC(ma1MonMod)
+```
+
+With the MA(1) model, both the ACF and PACF plots have a lag = 1 value outside of the significance window. However, the Ljung-Box test does result in rejecting the null, albeit with a far lower p-value than the AR(4) model. This suggests that the MA(1) model is a viable option for the monthly Arlington temperature data, but potentially less so than the AR(4) model.
+
+The MA(1) model also has a higher AIC value, at **2138.49**.
+
+
+### ARMA(4,1)
+
+
+```{r}
+armaMonMod <- arima(noSeason, order = c(4,0,1))
+armaResid <- resid(armaMonMod)
+plot(months, armaResid)
+
+#Determining ACF and PACF Values
+
+acf(armaResid, ylab = "sample ACF", xlab = "lag (year)")
+pacf(armaResid, ylab = "sample PACF", xlab = "lag (year)")
+
+#Running Ljung-Box Test
+Box.test(armaResid, type = 'Ljung-Box')
+
+
+#Calculating AIC for the Model
+AIC(armaMonMod)
+```
+
+
+The ARMA(4,1) model looks very similar to the AR(4) model in terms of its ACF and PACF plots, where the first few lags fall within the significance boundaries. The Ljung-Box test soundly rejects the null, indicating that an ARMA(4,1) model is a viable option.
+
+The AIC of the model is **2131.61**, which is slightly higher than the AR(4).
+
+
+### Conclusion
+
+Since all three models are viable based on the Ljung-Box Test, the lowest AIC model will be chosen. With the Arlington monthly temperature data, that would be the AR(4) model. Considering it also had the most sound Ljung-Box test rejection of the null hypothesis by p-value, removing the MA(1) factor from the model appears to be the best choice.
+
+## Predicting the Next Year
+
+With the AR(4) model chosen, the final step is to predict the 2018 montly information. 
+
+
+```{r}
+#Fitting the Model
+library(forecast)
+fit <- Arima(temperatures, order = c(4,0,0), include.drift = TRUE)
+autoplot(forecast(fit, h = 12, level = c(95))) #To include every month in 2018
+```
+
+Based on the predictions, the monthly average for January 2018 is around 14 degrees, with the weather peaking at 32 degrees before dropping to around 17 degrees by December 2018. 
+
+The 95% confidence range for January bottoms out at about 9 degrees and peaks at around 45 degrees over the summer months.
+
+
+
+# Problem 3
+
+In this study, a Gaussian process model will be used to determine the average amount of ozone in the atmosphere based on spatial interpolation.
+
+## Load Data
+
+The data used is the ozone2 dataset within the fields package. This dataset records the average surface ozone from 9 AM to 4 PM across over 150 sites in the Midwest during the Summer of 1987. 
+
+```{r}
+data(ozone2)
+loc <- ozone2$lon.lat
+rg <- apply(loc, 2, range)
+y <- ozone2$y[16,]
+good <- !is.na(y)
+
+```
+
+## Visualizing Data
+
+Before running the analysis, an initial visualization of the data will help guide the expected findings and any potential results.
+
+```{r}
+library(maps)
+map("state", xlim = rg[, 1], ylim = rg[, 2])
+quilt.plot(loc[good,], y[good], nx = 60, ny = 48, add = T)
+```
+
+Based on the map, the surface ozone was highest around Lake Superior, on the Michigan/Wisconsin border. As the sites trend farther north, the ozone amount appears to increase. However, longitude does not appear to have any impact on ozone amounts, and any changes are less apparent than changes in latitude.
+
+While the sites were located throughout multiple states in the midwest, there are plenty of gaps within the recordings. The spatial interpolation will help fill these gaps with expected values.
+
+## Plotting a Variogram: Linear Spatial Trend
+
+For the first round of analysis, the data is assumed to contain a linear spatial trend. To improve performance, this trend will be removed before a variogram of the data is created.
+
+```{r}
+lm <- lm(y[good] ~ loc[good,])
+
+d <- rdist.earth(loc[good,]); maxd <- max(d)
+vgram <- vgram(loc = loc[good,], y = lm$residuals, N = 30, lon.lat = TRUE)
+plot(vgram$stats["mean",] ~ vgram$centers, main = "Binned Semivariogram",
+las = 1, ylab = "", xlab = "Dist (miles)", col = "red",
+xlim = c(0, 0.3 * maxd), ylim = c(0, 700))
+
+```
+
+The spatial variogram follows a sinusodial wave design, but does appear to generally increase as the distance between points increases. This trend is especially true when looking at all distances under 100 miles. As a result, the plot suggests a spatial dependence structure exists within the dataset.
+
+## Making Predictions: Fitting a Gaussian Model
+
+With the variogram plotted, the next step is to fit a Gaussian model. This model will fill in the gaps within the Midwest not covered by testing sites while also presenting us information on the variability in different parts of the Midwest.
+
+This will be done by decomposing the trend into its spatial part and the spatial error. Then, both individual aspects of the Gaussian model trend (and the combined effects) will be graphed to determine the outcome of the model.
+
+```{r}
+fit <- spatialProcess(loc[good,], y[good])
+out.full <- predictSurface(fit, extrap = T)
+out.poly <- predictSurface(fit, just.fixed = T, extrap = T)
+out.spatial <- out.full
+out.spatial$z <- out.full$z - out.poly$z
+set.panel(1, 3)
+surface(out.full, las = 1, xlab = "Lon", ylab = "Lat", col = tim.colors())
+title("Full model")
+map("state", add = T)
+surface(out.poly, las = 1, xlab = "Lon", ylab = "Lat", col = tim.colors())
+map("state", add = T)
+title("Spatial trend")
+surface(out.spatial, las = 1, xlab = "Lon", ylab = "Lat", col = tim.colors())
+map("state", add = T)
+title("Spatial error")
+
+```
+
+## Findings
+
+The spatial trend suggests that as the longitude increases (moving farther East across the US) and/or as the latitude increases (moving farther North towards Canada), the ozone averages increase. This trend is consistent across the entire map area.
+
+### Error Analysis
+
+As for the error, the model pinpoints two regions as areas with a high level of error in the model. The first is directly over Lake Superior, where the model finds the most error. It is this region that is suggested to have the highest ozone average in the full model, but the spatial error is as high as five times more than a general region across the Midwest.
+
+The other region with a higher amount of error (albeit not to the extent of the Great Lakes) occurs in Southwestern Illinois. This region has an error around twice the average of the areas directly surrounding it.
+
+The error in the lake can be explained by it being a unique environment within the dataset. Due to the range of the study, Lake Superior is the only major body of water within the map. Since water has an affect on many aspects of the atmosphere (ground ozone included) that land masses either do not affect or affect in a lesser way, the model adds a high amount of error to this region.
+
+The Southwest Illinois patch is less clear. The initial dataset contained multiple data points in this part of the state, and while the points do slightly vary in value, the increased error is less clear than at the lakes, and is worth monitoring in future experiments.
+
+
+## Prediction Map
+
+With the Gaussian model created, a final prediction on ground ozone levels across the Midwest can be made.
+
+```{r}
+xg <- fields.x.to.grid(loc[good,])
+Pred <- predict.mKrig(fit, xnew = expand.grid(xg))
+SE <- predictSE(fit, xnew = expand.grid(xg))
+par(mfrow = c(1, 2), las = 1)
+map("state", xlim = rg[, 1], ylim = rg[, 2])
+image.plot(xg[[1]], xg[[2]], matrix(Pred, 80), add = T)
+map("state", xlim = rg[, 1], ylim = rg[, 2], add = T)
+title("Prediction")
+map("state", xlim = rg[, 1], ylim = rg[, 2])
+image.plot(xg[[1]], xg[[2]], matrix(SE, 80), add = T)
+map("state", xlim = rg[, 1], ylim = rg[, 2], add = T)
+title("Prediction SE")
+points(loc, pch = 16, cex = 0.5)
+```
+
+## Findings
+
+In the final predictions, Lake Superior is predicted to have by far the most ground ozone. This is in line with expectations after plotting the Gaussian model. The rest of the region is relatively consistent in its ozone count, with a slight decrease as the model trends away from the region of interest.
+
+As for the error, these low ozone regions also have the highest prediction standard error. Otherwise, the model's prediction SE remains about the same throughout all data points that did not have data already presented. Regions with initial data points in or near them have low prediction SE values.
+
+## Conclusions
+
+Based on the results of the model, Lake Superior had the highest daily ozone averages between 9 AM and 4 PM across the US Midwest in the Summer of 1987. The remainder of the region experienced little variation in ground ozone averages. 
+
+## Future Studies
+
+As the mapping region trends farther from the Great Lakes and their surrounding states, the error within the model greatly increases due to its focus on the US Midwest. A study in other regions, or a study encompassing a larger region, may show whether the US Midwest's ground ozone averages are expected throughout the entire US and potentially into lower Canada, or if the region is significantly different compared to the rest of the continent. Since the data was gathered as part of the EPA Regional Oxidant Model, an investigation into its approach and findings could provide answers to these questions.
+
+A study encompassing more years can take a time series approach to see if the ozone content has changed over the years; the data being over 35 years old brings questions about its modern-day accuracy. 
