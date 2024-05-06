@@ -1,0 +1,290 @@
+---
+title: "DSA 8020 Project 1"
+author: "Alexander Harriman"
+date: "2023-02-21"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Problem 1
+
+In this project, data on the Galapagos islands and the number of plant species found on the island will be tested to determine what factors, if any, affect the number of endemic plant species.
+
+## Descriptive Summary
+
+```{r}
+#Load Data
+library(faraway)
+galaData <- gala
+
+#Remove Species
+galaFilter <- galaData[,-1]
+
+galaFilter
+```
+
+```{r}
+#Five Point Summary
+summary(galaFilter)
+
+#Boxplots
+boxplot(galaFilter, main = 'Boxplot of Variables in Filtered Galapagos Dataset')
+
+#Histograms of Boxplots with Outliers
+hist(galaFilter$Area, breaks = 50, main = "Area of Islands in the Galapagos", xlab = "Area (sq km)", col = 'green')
+hist(galaFilter$Adjacent, breaks = 50, main = "Area of Adjacent Islands in the Galapagos", xlab = "Area (sq km)", col = 'blue')
+hist(galaFilter$Endemics, breaks = 10, main = "Number of Endemic Species on Galapagos Islands", xlab = "Species Count", col = 'red')
+```
+
+Most of the Galapagos Islands are relatively small based on the 3rd quartile mean of 59.237 km^2. However, there is are a few outliers closer to 1000 km^2, with a maximum area of 4669 km^2. The amount of endemic species on each island is relatively right skewed, but closer to normal than the area of the islands. The islands are very close to each other and to Santa Cruz island.
+
+## Model Prediction
+
+A linear model and ANOVA test can be used to see if at least one of the independent variables is significant in predicting the Endemics species count.
+
+An alpha of 0.05 will be used to show significance.
+
+```{r}
+#Linear Model
+speciesLM <- lm(Endemics ~ ., data = galaFilter)
+summary(speciesLM)
+
+#ANOVA
+anova(speciesLM)
+```
+The linear model has a p-value of 1.35E-8, which is less than 0.05. Also, the Elevation and Adjacent variables both hav a p-value less than 0.05. With the ANOVA table having four variables with a p-value of 0.05, we can conclude with 95% significance that at least one of the variables is a significant predictor of Endemics.
+
+## Subset Selection
+
+The best way to see if all of the predictors or only a subset of the predictors is useful is to use subset selection. Stepwise selection will be run on the full model, and the model with the best AIC value will be chosen.
+
+```{r}
+speciesStepMod <- step(speciesLM, direction = 'both')
+speciesStepMod
+```
+Based on stepwise selection, Nearest is dropped from the model. This aligns with the linear model p-value and the ANOVA p-value for Nearest; in both cases, the p-value is well above 0.05. Therefore, a subset of the predictors is a better choice than all predictors.
+
+## Variable Transformation
+
+To check if any variables need to be transformed, a residual plot and QQPlot will be used. If any of them suggest a failure of the linear model assumptions, transformation may be needed.
+
+```{r}
+#Residual Plot
+plot(speciesStepMod$fitted.values, speciesStepMod$residuals, pch = 16, col = "purple")
+abline(h = 0, col = 'orange')
+
+#QQ Plot
+plot(qnorm(1:30 / 31, 0, sd(speciesStepMod$residuals)), sort(speciesStepMod$residuals), pch = 16,
+     col = "gray", xlab = "Normal Quantiles", ylab = "Residuals")
+abline(0,1)
+```
+
+The residual plot suggests an even variance across the plot, while the QQ Plot values are close to linear. Therefore, the linear model assumptions appear to be met, and a transformation of the data does not seem to be needed.
+
+
+## Non-Linear Models
+
+Since our predictor variable is numeric and not categorical, a logistic model is not needed for the Galapagos data. Similarly, since the linear model assumptions are met, a poisson or non-parametric model is not needed either.
+
+## Model Fitting
+
+```{r}
+summary(speciesStepMod)
+```
+The model selected by stepwise selection has an adjusted R^2 value of 0.8059, suggesting around 80% of the variance in the data is explained by the model. This indicates a pretty strong relationship within the model.
+
+## Prediction of the Medians
+
+The predict function can predict the value of the linear model when all values are at the median. To quantify prediction uncertainty, a 95% PI will be created around the prediction.
+
+```{r}
+#New Data point with the median values
+
+medianVal <- data.frame(Area = median(galaFilter$Area), Elevation = median(galaFilter$Elevation), Scruz = median(galaFilter$Scruz), Adjacent = median(galaFilter$Adjacent))
+
+medPred <- predict(speciesStepMod, newdata = medianVal, interval = 'predict')
+medPred
+```
+
+The number of species on an island with the median value for all four predictors is 18.656 species, or 19 species when rounded up to the nearest whole number (as there can not be a decimal species count in real life). 
+
+The 95% PI for this prediction is [-6.641, 43.952]. This wide prediction interval suggests a high amount of prediction uncertainty.
+
+
+## Summary
+
+The number of endemic species in the Galapagos Islands can be strongly measured using a linear model of the island's Area, Elevation, distance from Santa Cruz Island, and adjacent island's area. There is a decent amount of uncertainty when using this model for predictions, potentially due to the 20% of variance the linear model does not explain. A different kind of model, whether polynomial or non-parametric/non-normal error model, could also be used to attempt to strengthen the model if needed.
+
+
+
+# Problem 2
+
+
+In this project, the Salaries dataset will be used to analyze the difference in salaries between male and female employees.
+
+To do this, an analysis using these two variables on their own will be run. Then, an analysis using other factors will be included to check for other effects causing potential salary differences.
+
+## Data Summary
+
+```{r}
+library(carData)
+salaryData <- Salaries
+summary(salaryData)
+```
+
+The data includes rank, discipline, years of service, and years since PhD along with the sex and salary values.
+
+## Direct Model: Salary vs. Sex
+
+A baseline comparison of Sex and Salary will be run to see any direct comparisons before additional factors are taken into account. 
+
+For all models, a p-value of 0.05 will be used to indicate significance, and 95% significance intervals will be used for confidence or prediction intervals when needed.
+
+```{r}
+directMod <- lm(salary ~ sex, data = salaryData)
+summary(directMod)
+```
+In this baseline model, we find that the p-value for sex is 0.006, which is less than 0.05. Thus, there is significance at the 95% level to suggest sex affects salary amounts. With the beta value for sex being positive when Male = 1, the model appears to indicate that men get paid more than women by about $14,000.
+
+However, this model has a very low adjusted R^2 value of 0.017, suggesting almost no variance is explained with just sex alone. 
+
+## Subset Selection on All Variables
+
+To account for the lack of variance, more variables will be added to the model. To find the best method of doing this, two-way stepwise selection will be applied to the data.
+
+```{r}
+#Create a model with all variables
+fullMod <- lm(salary ~ ., data = salaryData)
+
+subMod <- step(fullMod, direction = 'both')
+subMod
+```
+
+When running subset selection, all variables except for sex remain in the model. The model with the lowest AIC omits the sex variable completely. However, since this model has a nearly identical AIC to the model with all variables, the full model will be investigated next.
+
+
+## Full Model Analysis
+
+```{r}
+summary(fullMod)
+```
+In this version of the model, similar results to the stepwise selection are shown by sex being the only variable that is not significant at the 0.05 level. All other variables are significant.
+
+This model has an adjusted R^2 value of 0.4463, which suggest a moderate relationship. 
+
+## Linear Model Assumptions
+
+```{r}
+#Residual Plot
+plot(fullMod$fitted.values, fullMod$residuals, pch = 16, col = "purple")
+abline(h = 0, col = 'orange')
+
+#QQ Plot
+plot(qnorm(1:397 / 398, 0, sd(fullMod$residuals)), sort(fullMod$residuals), pch = 16,
+     col = "gray", xlab = "Normal Quantiles", ylab = "Residuals")
+abline(0,1)
+```
+
+The residual plot does not have equal variance throughout, so the linear model assumptions fail.
+
+## Square Root Fit of Model
+
+The residual plot for the linear model appeared to have an increase in variance for larger fitted values. As such, the next attempt will be using a square root model of the Salary instead.
+
+The model will be refit using subset selection, making sure to include sex if it is removed.
+
+```{r}
+#Create full model
+fullSqMod <- lm(sqrt(salary) ~ ., data = salaryData)
+
+bestSqMod <- step(fullSqMod, direction = 'both')
+bestSqMod
+```
+
+Sex once again gets removed, so the full square root model will be analyzed.
+
+
+## Analysis of Full Square Root Model
+
+```{r}
+summary(fullSqMod)
+```
+The square root model has a slightly greater adjusted R^2 value, at 0.484. Just as the standard linear model had sex as the only non-significant variable, this model is the same way.
+
+## Linear Model Assumptions
+
+```{r}
+#Residual Plot
+plot(fullSqMod$fitted.values, fullSqMod$residuals, pch = 16, col = "purple")
+abline(h = 0, col = 'orange')
+
+#QQ Plot
+plot(qnorm(1:397 / 398, 0, sd(fullSqMod$residuals)), sort(fullSqMod$residuals), pch = 16,
+     col = "gray", xlab = "Normal Quantiles", ylab = "Residuals")
+abline(0,1)
+```
+
+The square root model still fails the equal variance test according to the residual plot.
+
+## Exponential Model Analysis
+
+The third model tested will be an exponential model.
+
+```{r}
+#Create full model
+fullExpMod <- lm(log(salary) ~ ., data = salaryData)
+
+bestExpMod <- step(fullExpMod, direction = 'both')
+bestExpMod
+```
+The exponential model is the first model where removing the sex variable makes the model worse by AIC. In this case, every variable remains in the model.
+
+
+```{r}
+summary(fullExpMod)
+```
+
+The exponential model has the highest adjusted R^2 so far, at 0.518.
+
+
+```{r}
+#Residual Plot
+plot(fullExpMod$fitted.values, fullExpMod$residuals, pch = 16, col = "purple")
+abline(h = 0, col = 'orange')
+
+#QQ Plot
+plot(qnorm(1:397 / 398, 0, sd(fullExpMod$residuals)), sort(fullExpMod$residuals), pch = 16,
+     col = "gray", xlab = "Normal Quantiles", ylab = "Residuals")
+abline(0,1)
+```
+
+The variance is still unequal across fitted values, but the QQ Plot is the most linear of the three. Therefore, the exponential model does the best job at passing the linear assumptions.
+
+## Models with Interaction Terms
+
+The final model tested will take interaction terms into account. All interactions with the sex variable will be included in the model. This test will check how significantly sex relates to other variables.
+
+Since the exponential model was the best linear model, it will be used as the base for the interaction terms.
+
+```{r}
+fullIntMod <- lm(log(salary) ~ . + rank*sex + discipline*sex + yrs.since.phd*sex + yrs.service*sex, data = salaryData)
+
+
+bestIntMod <- step(fullIntMod, direction = 'both')
+bestIntMod
+```
+None of the interaction terms remain in the model.
+
+
+## Conclusion
+
+Based on the analysis, sex has a significant impact on salary, but only when it is the only variable taken into account. It is far from the most important variable within the Salaries dataset; it is arguably the least significant variable when predicting the salary of college employees. All three models determined via stepwise selection either removed the sex variable altogether or made it a non-significant variable in the fit. 
+
+
+
+
