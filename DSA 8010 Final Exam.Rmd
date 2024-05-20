@@ -1,0 +1,262 @@
+---
+title: "DSA 8010 Final Exam"
+author: "Alexander Harriman"
+date: "2022-12-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Part 1
+
+In this study, branch types of Fuji apple trees will be investigated to see if the branch type has an effect on the weight per apple the tree produces.
+
+## Data
+
+The data consists of eight trees for each of three types of branch: overlapping arm, tipped arm, and tall spindle.
+
+```{r}
+apples <- read.csv("fuji_apples.csv")
+head(apples)
+tail(apples)
+```
+
+The first analysis of the heights will be performed using boxplots, separated by branch type.
+
+```{r}
+boxplot(apples$weight.per.fruit ~ apples$treatment, main = "Boxplot of Average Fruit Height by Tree Branch Type", xlab = "Branch Type", ylab = "Average Fruit Weight (g)", col = c("red","yellow","green"))
+```
+
+The boxplots reveal a visually lower weight for overlapped arm compared to the other two types. 
+
+## Statistical Analysis: ANOVA Test
+
+Since the weight of the apples is a numeric variable, an ANOVA test can be used to determine if any of the three branch types have statistically significant differences in apple weight.
+
+The null hypothesis, H0, will be no difference in the weight between the three branch types. The alternative hypothesis, H1, will be that at least one of the branch types have a statistically significant mean. Since the focus of this study is on if such a difference exists and not where it exists, ANOVA will be the best option.
+
+An alpha of **0.05** will be used for conclusions.
+
+```{r}
+appleModel <- aov(apples$weight.per.fruit ~ apples$treatment)
+summary(appleModel)
+```
+
+### Model Outcome and Conclusion
+
+The model results in an F-statistic value of **8.071**, which leads to a p-value of **0.0025**. Since this p-value is less than 0.05, the null hypothesis is rejected. Therefore, there is evidence at the 95% confidence level to suggest at least one of the branch types lead to different apple weights than the others.
+
+
+## Model Assumptions
+
+ANOVA Modeling relies on meeting three assumptions.
+
+### Normality Assumption
+
+To check for normality, a Q-Q plot will be used.
+
+```{r}
+plot(appleModel)
+```
+
+The quantiles do not appear to be very linear, instead taking on a wave function look. Therefore, each sample does not appear to be taken from a normal population.
+
+Since the Q-Q Plot seems to be unclear, a Shapiro-Wilks test will be run to check for normality instead. The test will focus on the weight per fruit specifically. If the null hypothesis is rejected, then the sample is not taken from a normal population.
+
+```{r}
+shapiro.test(apples$weight.per.fruit)
+```
+
+The Shapiro test results in a W statistic of 0.95 and a p-value of 0.279. This is greater than 0.05, and thus the null hypothesis is not rejected. Therefore, at the 95% significance level, the sample is taken from a normal population.
+
+
+### Equal Variance Assumption
+
+To check for equal variances between the samples, the boxplots graphed above can be used. Since the tall spindle branch type appears to have a greater range than the other two types (and especially so when compared to the overlapped arm branch type), this assumption is unclear by visualization alone.
+
+Thus, a Bartlett test will be run to check for equal variances instead. If the null hypothesis is rejected, then the variances are not equal.
+
+```{r}
+bartlett.test(weight.per.fruit ~ treatment, data = apples)
+```
+
+The test results in a K^2 value of 4.52 and a p-value of 0.1. Since this is greater than 0.05, we have evidence at the 95% level to suggest the variances are equal. However, the low p-value does confirm the lack of clarity the boxplots showed.
+
+### Independence Assumption
+
+Independence is determined through the nature of the study itself. While it is unclear whether or not the data was acquired through independent means, there is also no information that suggests the data is not independent. Therefore, this assumption can be assumed.
+
+## Limitations and Complications
+
+The relative lack of data contributes to the lack of clarity within the ANOVA results and assumptions. Thus, adding additional data could help strengthen the model and lead to more valid results.
+
+Similarly, the experiment taking place in only one testing site could lead to outside bias entering the model based on the location and testing conditions. Repeating this experiment multiple times (and potentially in multiple places, if feasible) could also strengthen this study's results.
+
+
+
+# Part 2
+
+In this study, the results of professor assessments taken by students will be analyzed to determine whether the literature is correct that professor beauty is a significant aspect of a professor's score, or if other factors play a role as well.
+
+## Data
+
+The data used in this study comes from the University of Texas at Austin. 463 scores were taken within this data, alongside information on the professor's background and beauty as recorded by students.
+
+```{r}
+studentProf <- read.csv("evals.csv")
+head(studentProf)
+tail(studentProf)
+```
+
+For this study specifically, two of these metrics will be focused on: the number of students within the class the professor being assessed taught and whether the language the professor received their education at was primarily English or Non-English. 
+
+## Variable Analysis
+
+To begin the analysis, the variables of focus will be graphed to investigate any trends hidden within the values.
+
+```{r}
+hist(studentProf$score, main = "Histogram of Student's Professor Ratings, UT Austin", xlab = "Professor Score")
+```
+
+An investigation into the assessment scores finds that these scores appear to be left-skewed, with a peak around the 4.5 mark. On a scale whose max is 5.0, the scores appear to lean high.
+
+
+```{r}
+boxplot(studentProf$cls_students, ylab = "Class Size", main = "Boxplot of UT Austin Class Size")
+```
+
+A boxplot of number of students within the class has a very low mean relative to the maximum and even the third quartile value. The data also has many outliers, with some classes containing more than 500 students.
+
+```{r}
+boxplot(studentProf$score ~ studentProf$language, xlab = "Primary Language of Professor College", ylab = "Student's Professor Score", main = "Professor Assessment Score by Language of Professor's College", col = c("blue","yellow"))
+```
+
+A cursory look at the primary language of the professor's education appears to show a lower mean for the Non-English speaking colleges. However, the range is much higher for English speaking colleges, including a much lower minimum and several low outliers.
+
+
+## Language Statistical Analysis
+
+The first analysis will focus on the languages vs. the professor score. A two-sample t-test will be used to compare the two means.
+
+The null hypothesis, H0, is that the difference in means is equal to 0. The alternative hypothesis, H1, is that the difference in means is not equal to 0. Since the study attempts to find if a relationship exists, "not equal to" is acceptable as the alternate hypothesis.
+
+An alpha of 0.05 will be used to make a final decision on the test. Also, the variance ratio test will be used to decide between equal and non-equal variances within the T-test.
+
+
+```{r}
+#Separate into two separate datasets
+
+englishProf <- studentProf[studentProf$language == "english",]
+nonEnglishProf <- studentProf[studentProf$language == "non-english",]
+
+#Check for equal variance
+
+englishSD <- sd(englishProf$score)
+nonEnglishSD <- sd(nonEnglishProf$score)
+
+englishSD
+nonEnglishSD
+```
+
+With the two subsets having a variance that is nearly identical, and thus less than the 4:1 ratio, equal variances will be assumed within the T-test.
+
+```{r}
+t.test(englishProf$score, nonEnglishProf$score, mu = 0, var.equal = FALSE)
+```
+
+
+### Model Outcome and Conclusion
+
+The t-test results in a T statistic of **2.86** with a p-value of **0.007**. Since this p-value is less than 0.05, we reject the null hypothesis. Therefore, there is evidence at the 95% significance level to suggest the average score is different between professors who attended primarily English-speaking colleges and those who attended primarily non-English-speaking colleges.
+
+## Model Assumptions
+
+The t-test is usable under certain conditions, which must be checked before verifying the results.
+
+### Independence of Samples
+
+Since it is not possible for a professor to have studied at both a primarily English and a primarily non-English college by its definition, the samples are independent.
+
+### Normality of Samples
+
+Since the non-English-speaking colleges are in small supply, a Shapiro-Wilks test is the best way to test this.
+
+```{r}
+shapiro.test(englishProf$score)
+shapiro.test(nonEnglishProf$score)
+```
+
+Since the p-value of the professors in the non-English speaking dataset is less than 0.05, the scores of those professors are not normal.
+
+### Equal Variances
+
+The ratio test confirmed that the two samples have equal variance.
+
+### Random Sampling
+
+It is unclear whether the data is randomly sampled, since the values are only from a single school and the decision to make a professor review can be motivated by outside factors. Therefore, it is unclear whether this assumption is validated or not.
+
+## Conclusion and Limitations
+
+Overall, there appears to be a statistically significant difference in professor review scores between professors who received their education at a primarily English college and profesors who received their education at a primarily non-English college. With the 95% CI being wholly positive, evidence suggests that scores are higher for the English college professors.
+
+However, the model does not pass every assumption for a two-sample t-test, in no small part due to the small number of non-English speaking college origins of the professors in the study. Therefore, another test would be useful to back up the results of this study, along with adding additional data to the study.
+
+
+
+## Class Size Statistical Analysis
+
+The next part of the investigation will look into the sizes of classes when relating to professor scores. A linear model will be used to perform this analysis, since both variables are numeric.
+
+The Adjusted R^2 score will be used to judge the relationship between these variables, alongside the F-statistic for the overall model.
+
+```{r}
+classSizeMod <- lm(score ~ cls_students, data = studentProf)
+summary(classSizeMod)
+```
+
+### Model Outcomes and Conclusions
+
+The linear model results in a positive relationship between the number of students in a class and the professor score. The equation is **Score = 0.000188(Student Count) + 4.164**. 
+
+However, this model has a negative adjusted R^2, indicating nearly no statistical significance to this model. In fact, a p-value of **.577** for the F-statistic fails to reject the null hypothesis at any significance level, which suggests that the coefficients in this model are all equal to 0.
+
+## Linear Model Assumptions
+
+The linear model assumptions must be met to confirm no relationship existing between student count and survey score.
+
+### Linear Relationship
+
+```{r}
+plot(studentProf$cls_students, studentProf$score, xlab = "Number of Students", ylab = "Professor Assessment Score", main = "Professor Score vs. Number of Students")
+```
+
+The data does not appear to have a linear relationship.
+
+### Independence and Constant Variance
+
+Both of these can be checked using plots of the linear model.
+
+```{r}
+plot(classSizeMod)
+```
+
+The Q-Q plot resembles a step function, and is not linear. Also, the residual vs. leverage plot does not have equal variance across the plot. Therefore, the two assumptions both fail.
+
+## Conclusion and Limitations
+
+Based on the result of the model and the linear model assumptions, it is apparent that a linear model is not a good decision for this data.
+
+Adjusting the data by adding a logarithm to the variables do not improve the model either.
+
+```{r}
+classSizeLogMod <- lm(log(score) ~ cls_students, data = studentProf)
+summary(classSizeLogMod)
+
+classSizeLogMod2 <- lm(score ~ log(cls_students), data = studentProf)
+summary(classSizeLogMod2)
+```
+
+Therefore, a different test or model would be better used for this analysis.
