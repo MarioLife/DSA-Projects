@@ -1,0 +1,781 @@
+---
+title: "Clemson Gymnastics Analysis Code"
+author: "Alexander Harriman"
+date: "2024-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Packages
+
+```{r, echo = FALSE, results = 'hide', warning = FALSE}
+library(readxl)
+library(dplyr)
+library(gt)
+library(ggplot2)
+library(tidyverse)
+library(readr)
+library(data.table)
+library(writexl)
+```
+
+
+# Question 1
+
+Insights are based on the GYMNASTICS_DATA dataset.
+
+```{r, warning = FALSE}
+# Load all sheets into a list of dataframes
+
+allSheets <- function(file, tibble = FALSE){
+  sheetNames <- excel_sheets(file)
+  x <- lapply(sheetNames, 
+              function(y){
+    read_excel(file, sheet = y)
+  })
+  names(x) <- sheetNames
+  x
+}
+
+
+allGymnastics <- allSheets('GYMNASTICS_DATA.XLSX')
+```
+
+
+## Number of Scanned In Customers
+
+To check how many customers scanned into each meet, the ATTENDANCE spreadsheet will be used.
+
+
+```{r}
+customers <- allGymnastics[[3]]
+
+#Convert distance travelled to a numeric variable
+
+customers <- customers |>
+  mutate(DISTANCE_TRAVELLED_IN_MILES = as.numeric(DISTANCE_TRAVELLED_IN_MILES))
+```
+
+
+```{r}
+# Filter the customer data down to only gymnastics
+
+gymCustomers <- customers |>
+  filter(SPORT_NAME == "Women's Gymnastics")
+```
+
+During the 2024 Women's Gymnastics season, 43,498 tickets were sold according to the database.
+
+
+```{r}
+#Find the number of scanned in tickets
+
+allScan <- gymCustomers |>
+  filter(is.na(SCAN_TIME) == FALSE)
+
+dim(allScan)[1]
+```
+
+During the 2024 Women's Gymnastics season, 31,168 tickets were scanned into the event.
+
+
+### Tickets Sold and Scanned, 2024 Season
+
+```{r}
+seasonTable <- data.frame(
+  meet = 'Full Season',
+  date = '2024', 
+  totalTickets = dim(gymCustomers)[1],
+  scanTickets = dim(allScan)[1]
+) |>
+  mutate(scanRate = round((100.0*scanTickets / totalTickets), 1))
+```
+
+#### Per Meet
+
+For additional context on how well Clemson did on getting sold tickets into the stadium as the season progressed. This information will also inform factors on meet attendance (Part 3 of Question 1).
+
+
+```{r}
+totalTicketsMeet <- gymCustomers |>
+  group_by(ATHLETICS_EVENT_ID) |>
+  summarise(date = as.character(ATHLETICS_EVENT_DATE)[1],
+            totalTickets = length(PRICE),
+            scanTickets = sum(ifelse(is.na(SCAN_TIME) == FALSE, 1, 0))) |>
+  mutate(scanRate = round((100.0*scanTickets / totalTickets),1),
+         meet = case_when(
+           ATHLETICS_EVENT_ID == 319 ~ 'UNC',
+           ATHLETICS_EVENT_ID == 320 ~ 'Air Force',
+           ATHLETICS_EVENT_ID == 323 ~ 'W&M',
+           ATHLETICS_EVENT_ID == 324 ~ 'Pitt',
+           ATHLETICS_EVENT_ID == 325 ~ 'NC State'
+         )) |>
+  select(meet, date, totalTickets, scanTickets, scanRate)
+```
+
+
+
+```{r}
+fullData <- rbind(totalTicketsMeet, seasonTable) |>
+  arrange(factor(meet, levels = c('W&M', 'Pitt', 'NC State', 'UNC', 'Air Force', 'Full Season'))) |>
+  select(meet, totalTickets, scanTickets, scanRate)
+
+
+scannedTicketTable <- fullData |>
+  gt() |>
+  tab_header(title = md('**Gymnastics Attendance Figures, 2024 Season**')) |>
+  cols_align(align = 'center', columns = c('meet', 'totalTickets', 'scanTickets', 'scanRate')) |>
+  cols_label(meet = 'Meet', totalTickets = 'Tickets Sold', scanTickets = 'Tickets Scanned', scanRate = 'Scanned%') |>
+  opt_stylize(style = 5, color = 'gray') |>
+  cols_width(everything() ~ px(140)) |>
+  tab_style(style = list(
+    cell_text(weight = 'bold')
+  ),
+  locations = cells_body(
+    rows = meet == 'Full Season'
+  )) |>
+  tab_style(
+    style = cell_borders(
+      sides = c('top'),
+      color = 'black',
+      weight = px(1.5),
+      style = 'solid'
+    ),
+    locations = cells_body(rows = meet == 'Full Season') 
+  )
+
+scannedTicketTable
+```
+
+#### Overall Clemson Scanned Ticket Rate
+
+Used as a comparison tool for how effective Clemson Gymnastics was at getting scanned tickets.
+
+
+```{r}
+allSports <- customers |>
+  group_by(SPORT_NAME) |>
+  summarise(n = n(),
+            scans = sum(ifelse(is.na(SCAN_TIME) == FALSE, 1, 0))) |>
+  mutate(scanRate = round((100.0*scans / n), 1)) |>
+  arrange(desc(scanRate))
+
+totalAverage <- data.frame(
+  SPORT_NAME = 'All Sports',
+  n = dim(customers)[1],
+  scans = sum(ifelse(is.na(customers$SCAN_TIME) == FALSE, 1, 0)),
+  scanRate = round((100.0*sum(ifelse(is.na(customers$SCAN_TIME) == FALSE, 1, 0))) / dim(customers)[1], 1)
+)
+```
+
+
+
+```{r}
+fullSports <- rbind(allSports, totalAverage)
+
+scannedTicketTable2 <- fullSports |>
+  gt() |>
+  tab_header(title = md('**Clemson Scanned Ticket Rates, Spring 2024**')) |>
+  cols_align(align = 'center', columns = c('SPORT_NAME', 'n', 'scans', 'scanRate')) |>
+  cols_label(SPORT_NAME = 'Sport', n = '# Tickets', scans = '# Scanned', scanRate = 'Scanned%') |>
+  opt_stylize(style = 5, color = 'gray') |>
+  cols_width(SPORT_NAME ~ px(200), everything() ~ px(125)) |>
+  tab_footnote('Accurate as of 16 April.') |>
+  tab_style(style = list(
+    cell_text(weight = 'bold')
+  ),
+  locations = cells_body(
+    rows = SPORT_NAME %in% c("Women's Gymnastics", 'All Sports')
+  )) |>
+  tab_style(
+    style = cell_borders(
+      sides = c('top'),
+      color = 'black',
+      weight = px(1.5),
+      style = 'solid'
+    ),
+    locations = cells_body(rows = SPORT_NAME == 'All Sports') 
+  )
+
+scannedTicketTable2
+```
+
+## Scanned in On Time Rates by Sport
+
+Looking at how often people who scanned into women's gymnastics events scanned in on time, relative to the rest of the spring sports.
+
+
+```{r}
+allSports <- customers |>
+  filter(is.na(SCAN_TIME) == FALSE) |>
+  group_by(SPORT_NAME) |>
+  summarise(scans = n(),
+            onTime = sum(ifelse(SCAN_MINS_BEFORE_START > 0, 1, 0))) |>
+  mutate(onTimeRate = round((100.0*onTime / scans), 1)) |>
+  arrange(desc(onTimeRate))
+
+totalAverage <- data.frame(
+  SPORT_NAME = 'All Sports',
+  scans = sum(ifelse(is.na(customers$SCAN_TIME) == FALSE, 1, 0)),
+  onTime = sum(ifelse(is.na(customers$SCAN_TIME) == FALSE & customers$SCAN_MINS_BEFORE_START > 0, 1, 0)),
+  onTimeRate = round(100.0*
+    sum(ifelse(is.na(customers$SCAN_TIME) == FALSE & customers$SCAN_MINS_BEFORE_START > 0, 1, 0))
+    / sum(ifelse(is.na(customers$SCAN_TIME) == FALSE, 1, 0)), 1)
+)
+
+onTimeInfo <- rbind(allSports, totalAverage)
+```
+
+
+```{r}
+onTimeTable <- onTimeInfo |>
+  gt() |>
+  tab_header(title = md('**Clemson Tickets Scanned on Time, Spring 2024**')) |>
+  cols_align(align = 'center', columns = c('SPORT_NAME', 'scans', 'onTime', 'onTimeRate')) |>
+  cols_label(SPORT_NAME = 'Sport', scans = '# Scanned', onTime = '# On Time', onTimeRate = 'On Time%') |>
+  opt_stylize(style = 5, color = 'blue') |>
+  cols_width(SPORT_NAME ~ px(200), everything() ~ px(125)) |>
+  tab_footnote('Accurate as of 16 April.') |>
+  tab_style(style = list(
+    cell_text(weight = 'bold')
+  ),
+  locations = cells_body(
+    rows = SPORT_NAME %in% c("Women's Gymnastics", 'All Sports')
+  )) |>
+  tab_style(
+    style = cell_borders(
+      sides = c('top'),
+      color = 'black',
+      weight = px(1.5),
+      style = 'solid'
+    ),
+    locations = cells_body(rows = SPORT_NAME == 'All Sports') 
+  )
+
+onTimeTable
+```
+
+### Per Meet
+
+
+```{r}
+onTimeMeet <- gymCustomers |>
+  filter(is.na(SCAN_TIME) == FALSE) |>
+  group_by(ATHLETICS_EVENT_ID) |>
+  summarise(scanTickets = n(),
+            onTimeTickets = sum(ifelse(SCAN_MINS_BEFORE_START > 0, 1, 0))) |>
+  mutate(onTimeRate = round((100.0*onTimeTickets / scanTickets),1),
+         meet = case_when(
+           ATHLETICS_EVENT_ID == 319 ~ 'UNC',
+           ATHLETICS_EVENT_ID == 320 ~ 'Air Force',
+           ATHLETICS_EVENT_ID == 323 ~ 'W&M',
+           ATHLETICS_EVENT_ID == 324 ~ 'Pitt',
+           ATHLETICS_EVENT_ID == 325 ~ 'NC State'
+         )) |>
+  select(meet, scanTickets, onTimeTickets, onTimeRate)
+```
+
+
+
+```{r}
+scannedGym <- gymCustomers |>
+  filter(is.na(SCAN_TIME) == FALSE)
+
+seasonOnTimeTable <- data.frame(
+  meet = 'Full Season',
+  scanTickets = dim(scannedGym)[1],
+  onTimeTickets = sum(ifelse(scannedGym$SCAN_MINS_BEFORE_START > 0, 1, 0))
+) |>
+  mutate(onTimeRate = round((100.0*onTimeTickets / scanTickets), 1))
+```
+
+
+```{r}
+fullOnTime <- rbind(onTimeMeet, seasonOnTimeTable) |>
+  arrange(factor(meet, levels = c('W&M', 'Pitt', 'NC State', 'UNC', 'Air Force', 'Full Season'))) |>
+  select(meet, scanTickets, onTimeTickets, onTimeRate)
+
+
+onTimeTable2 <- fullOnTime |>
+  gt() |>
+  tab_header(title = md('**Gymnastics Tickets Scanned on Time by Meet, 2024**')) |>
+  cols_align(align = 'center', columns = c('meet', 'scanTickets', 'onTimeTickets', 'onTimeRate')) |>
+  cols_label(meet = 'Meet', scanTickets = '# Scanned', onTimeTickets = '# On Time', onTimeRate = 'On Time%') |>
+  opt_stylize(style = 5, color = 'blue') |>
+  cols_width(everything() ~ px(125)) |>
+  tab_style(style = list(
+    cell_text(weight = 'bold')
+  ),
+  locations = cells_body(
+    rows = meet == c("Full Season")
+  )) |>
+  tab_style(
+    style = cell_borders(
+      sides = c('top'),
+      color = 'black',
+      weight = px(1.5),
+      style = 'solid'
+    ),
+    locations = cells_body(rows = meet == 'Full Season') 
+  )
+
+onTimeTable2
+
+```
+
+
+
+## Reasons for Ticket Distribution
+
+
+### Scanned Tickets vs. Rankings
+
+```{r}
+#End of Regular Season Rankings of All Opponents
+
+
+fullRankingsData <- fullData |>
+  mutate(ranking = case_when(
+    meet == 'W&M' ~ 63,
+    meet == 'Pitt' ~ 41,
+    meet == 'NC State' ~ 16,
+    meet == 'UNC' ~ 42,
+    meet == 'Air Force' ~ 56
+  )) |>
+  filter(meet != 'Full Season') |>
+  select(meet, ranking, scanRate) |>
+  arrange(desc(scanRate))
+```
+
+```{r}
+rankingsTable <- fullRankingsData |>
+  gt() |>
+  tab_header(title = md('**Scan Rate by Road to Nationals Ranking, 2024**')) |>
+  cols_align(align = 'center', columns = c('meet', 'ranking', 'scanRate')) |>
+  cols_label(meet = 'Meet', ranking = 'Ranking', scanRate = 'Scanned%') |>
+  opt_stylize(style = 5, color = 'gray') |>
+  cols_width(everything() ~ px(125)) |>
+  tab_footnote(footnote = 'Rankings Taken at End of Regular Season (3-25).', locations = cells_column_labels(columns = ranking))
+
+rankingsTable
+```
+
+
+
+### Scanned Tickets vs. Proximity to Stadium
+
+```{r}
+bucketedProx <- gymCustomers |>
+  mutate(LocBucket = case_when(
+    DISTANCE_TRAVELLED_IN_MILES < 5 ~ 'Locals',
+    DISTANCE_TRAVELLED_IN_MILES >= 5 & DISTANCE_TRAVELLED_IN_MILES < 40 ~ 'Nearby Residents',
+    DISTANCE_TRAVELLED_IN_MILES > 40 ~ 'Vacationers',
+    is.na(DISTANCE_TRAVELLED_IN_MILES) ~ 'Unknown'
+  ),
+    meet = case_when(
+      ATHLETICS_EVENT_ID == 319 ~ 'UNC',
+      ATHLETICS_EVENT_ID == 320 ~ 'Air Force',
+      ATHLETICS_EVENT_ID == 323 ~ 'W&M',
+      ATHLETICS_EVENT_ID == 324 ~ 'Pitt',
+      ATHLETICS_EVENT_ID == 325 ~ 'NC State'
+      )
+  ) |>
+  filter(is.na(SCAN_TIME) == FALSE)
+
+proxData <- bucketedProx |>
+  group_by(meet) |>
+  summarise(scanTickets = sum(ifelse(is.na(SCAN_TIME) == FALSE, 1, 0)),
+            #scanTickets = n(),
+            campus = sum(ifelse(LocBucket == 'Locals', 1, 0)),
+            locals = sum(ifelse(LocBucket == 'Nearby Residents', 1, 0)),
+            vacations = sum(ifelse(LocBucket == 'Vacationers', 1, 0)),
+            unknown = sum(ifelse(LocBucket == 'Unknown', 1, 0)))
+
+proxRates <- proxData |>
+  mutate(campus = round(100.0*campus / scanTickets,1),
+         locals = round(100.0*locals / scanTickets,1),
+         vacations = round(100.0*vacations / scanTickets,1),
+         unknown = round(100.0*unknown / scanTickets,1))
+```
+
+
+
+
+
+```{r}
+colnames(proxRates) <- c('meet', 'scanTickets', 'Campus', 'Locals', 'Vacations', 'Unknown')
+
+pivotLonger <- proxRates |>
+  select(meet, Campus, Locals, Vacations, Unknown) |>
+  pivot_longer(-meet)
+
+pivotLonger$meet <- factor(pivotLonger$meet, levels = c('W&M', 'Pitt', 'NC State', 'UNC', 'Air Force'))
+pivotLonger$name <- factor(pivotLonger$name, levels = c('Campus', 'Locals', 'Vacations', 'Unknown'))
+
+
+ggplot(pivotLonger, aes(x = meet, y = value, fill = name)) +
+  geom_col(position = 'dodge') +
+  xlab('Meet') +
+  ylab('% of Scanned Tickets') +
+  ggtitle('Scanned Gymnastics Tickets by Distance from Littlejohn') +
+  theme(legend.title = element_blank()) +
+  scale_fill_manual('legend', values = c('Campus' = '#522D80', 'Locals' = '#F56600', 'Vacations' = '#00205B', 'Unknown' = '#C8C9C7'))
+```
+
+
+
+
+
+### Scanned Tickets vs. Ticket Acquisition Method
+
+
+
+```{r}
+bucketedAcq <- gymCustomers |>
+  mutate(meet = case_when(
+      ATHLETICS_EVENT_ID == 319 ~ 'UNC',
+      ATHLETICS_EVENT_ID == 320 ~ 'Air Force',
+      ATHLETICS_EVENT_ID == 323 ~ 'W&M',
+      ATHLETICS_EVENT_ID == 324 ~ 'Pitt',
+      ATHLETICS_EVENT_ID == 325 ~ 'NC State'
+      )
+  ) |>
+  filter(is.na(SCAN_TIME) == FALSE)
+
+acqData <- bucketedAcq |>
+  group_by(meet) |>
+  summarise(scanTickets = n(),
+            primary = sum(ifelse(TICKET_ACQUISITION_TYPE == 'Primary', 1, 0)),
+            secondary = sum(ifelse(TICKET_ACQUISITION_TYPE == 'Secondary', 1, 0)),
+            forward = sum(ifelse(TICKET_ACQUISITION_TYPE == 'Forward', 1, 0)),
+            comp = sum(ifelse(TICKET_ACQUISITION_TYPE == 'Comp', 1, 0)))
+
+acqRates <- acqData |>
+  mutate(primary = round(100.0*primary / scanTickets,1),
+         secondary = round(100.0*secondary / scanTickets,1),
+         forward = round(100.0*forward / scanTickets,1),
+         comp = round(100.0*comp / scanTickets,1)) |>
+  select(meet, primary, secondary, forward, comp)
+
+```
+
+
+
+
+```{r}
+colnames(acqRates) <- c('Meet', 'Primary', 'Secondary', 'Forward', 'Comp')
+
+pivotLonger2 <- acqRates |>
+  pivot_longer(-Meet)
+
+pivotLonger2$Meet <- factor(pivotLonger2$Meet, levels = c('W&M', 'Pitt', 'NC State', 'UNC', 'Air Force'))
+pivotLonger2$name <- factor(pivotLonger2$name, levels = c('Primary', 'Secondary', 'Forward', 'Comp'))
+
+ggplot(pivotLonger2, aes(x = Meet, y = value, fill = name)) +
+  geom_col(position = 'dodge') +
+  xlab('Meet') +
+  ylab('% of Scanned Tickets') +
+  ggtitle('Scanned Gymnastics Tickets by Acquisition Method') +
+  theme(legend.title = element_blank()) +
+  scale_fill_manual('legend', values = c('Primary' = '#522D80', 'Secondary' = '#F56600', 'Forward' = '#C8C9C7', 'Comp' = '#546223'))
+```
+
+
+### How Often Each Ticket Type is Scanned/On Time: Gymnastics
+
+
+```{r}
+typeTable <- gymCustomers |>
+  group_by(TICKET_ACQUISITION_TYPE) |>
+  summarise(tickets = n(),
+            scanTickets = sum(ifelse(is.na(SCAN_TIME) == FALSE, 1, 0)),
+            onTimeTickets = sum(ifelse(is.na(SCAN_TIME) == FALSE & SCAN_MINS_BEFORE_START > 0, 1, 0)))
+
+typeTable <- typeTable |>
+  mutate(scanRate = round((100.0*scanTickets) / tickets, 1),
+         onTimeRate = round((100.0*onTimeTickets) / scanTickets, 1)) |>
+  select(TICKET_ACQUISITION_TYPE, tickets, scanRate, onTimeRate)
+
+typeTable
+```
+
+
+```{r}
+cleanType <- typeTable |>
+  gt() |>
+  tab_header(title = md('**Gymnastics Attendee Metrics by Ticket Type**')) |>
+  cols_align(align = 'center', columns = c('TICKET_ACQUISITION_TYPE', 'tickets', 'scanRate', 'onTimeRate')) |>
+  cols_label(TICKET_ACQUISITION_TYPE = 'Ticket Type', tickets = '# Sold', scanRate = 'Scanned%', onTimeRate = 'On Time%') |>
+  opt_stylize(style = 5, color = 'green') |>
+  cols_width(everything() ~ px(125)) |>
+  tab_footnote(footnote = '% of Scanned Tickets Entered on Time.', locations = cells_column_labels(columns = onTimeRate))
+
+cleanType
+```
+
+
+
+
+# Question 2
+
+
+In this section, the on-floor performance of Clemson Gymnastics will be analyzed.
+
+
+## Combining Meet Data
+
+
+```{r, warning = FALSE, echo = TRUE, results = 'hide', message = FALSE}
+meetFiles <- list.files(path = '.', pattern = '.csv')
+
+mergedData <- list()
+
+for(i in 1:length(meetFiles)){
+  inputFile <- read_delim(meetFiles[i], locale = locale(encoding = 'windows-1252'))
+  colnames(inputFile) <- lapply(colnames(inputFile), gsub, pattern = 'Ê', replacement = '')
+  inputFile[] <- lapply(inputFile, gsub, pattern = 'Ê', replacement = '')
+  mergedData[[i]] <- inputFile
+}
+```
+
+
+
+```{r, warning = FALSE}
+# Create a single format for column names
+
+# The long files have two Event columns: one for the name of the match and one for the real event.
+## Edit these column names for formatting:
+
+for(i in 1:length(mergedData)){
+  if('Event...5' %in% colnames(mergedData[[i]])){
+    mergedData[[i]] <- mergedData[[i]] |>
+      rename_at('Event...5', ~'Event') |>
+      rename_at('Event...14', ~'Match')
+  }
+  else{
+    next
+  }
+}
+
+# The newly-made 'Event' column does not have the same syntax as the smaller data frames with EVENT.
+## Regulate syntax:
+
+for(i in 1:length(mergedData)){
+  if(dim(mergedData[[i]])[2] > 10){
+    mergedData[[i]] <- mergedData[[i]] |>
+      mutate(Event = case_when(
+        Event == 'VT' ~ 'VAULT',
+        Event == 'UB' ~ 'BARS',
+        Event == 'BB' ~ 'BEAM',
+        Event == 'FX' ~ 'FLOOR'
+        )
+      )
+  }
+  else{
+    next
+  }
+}
+
+### Commonly found inaccuracies:
+
+
+# EVENT instead of Event
+# Gymnast instead of Name
+# Meets with only one SV have SV; meets with 2+ have SV1 instead
+
+# Edit column names based on above format:
+
+for(i in 1:length(mergedData)){
+  if('EVENT' %in% colnames(mergedData[[i]])){
+    mergedData[[i]] <- mergedData[[i]] |>
+      rename_at('EVENT', ~'Event')  
+  } 
+}
+
+for(i in 1:length(mergedData)){
+  if('Gymnast' %in% colnames(mergedData[[i]])){
+    mergedData[[i]] <- mergedData[[i]] |>
+      rename_at('Gymnast', ~'Name')
+  }
+}
+
+for(i in 1:length(mergedData)){
+  if('SV' %in% colnames(mergedData[[i]])){
+    mergedData[[i]] <- mergedData[[i]] |>
+      rename_at('SV', ~'SV1')
+  }
+}
+
+# The data file from UNC has all capitalized columns (besides the edited Event)
+## The same file used CU instead of Clemson.
+
+### Fix this file:
+
+## Find where in list it is
+uncLocator <- which(sapply(meetFiles, function(meetFiles) "Away_meet_UNC.csv" %in% meetFiles))
+
+# Fix columns (should be Place, Name, Team, Score, Event)
+for(i in 1:length(mergedData)){
+  if(i == uncLocator){
+    colnames(mergedData[[i]]) <- c('Place', 'Name', 'Team', 'Score', 'Event')
+  }
+}
+
+# Add in date and match information where not available
+
+for(i in 1:length(meetFiles)){
+  name <- meetFiles[i]
+  for(j in 1:dim(mergedData[[i]])[1]){
+    mergedData[[i]]$Match[j] <- case_when(
+      name == 'ACC_champ.csv' ~ 'ACC Championship',
+      name == 'Away_meet_NCSU.csv' ~ 'at NC State',
+      name == 'Away_meet_PITT.csv' ~ 'at Pitt',
+      name == 'Away_meet_QUAD.csv' ~ 'at TWU',
+      name == 'Away_meet_UCLA.csv' ~ 'at UCLA',
+      name == 'Away_meet_UNC.csv' ~ 'at UNC',
+      name == 'Home_meet_AF.csv' ~ 'vs Air Force',
+      name == 'Home_meet_NCSU.csv' ~ 'vs NC State',
+      name == 'Home_meet_PITT.csv' ~ 'vs Pitt',
+      name == 'Home_meet_UNC.csv' ~ 'vs UNC',
+      name == 'NCAA_champ.csv' ~ 'NCAA Championship'
+    )
+    mergedData[[i]]$Date[j] <- case_when(
+      name == 'ACC_champ.csv' ~ '2024-03-23',
+      name == 'Away_meet_NCSU.csv' ~ '2024-02-17',
+      name == 'Away_meet_PITT.csv' ~ '2024-02-09',
+      name == 'Away_meet_QUAD.csv' ~ '2024-03-03',
+      name == 'Away_meet_UCLA.csv' ~ '2024-03-16',
+      name == 'Away_meet_UNC.csv' ~ '2024-01-26',
+      name == 'Home_meet_AF.csv' ~ '2024-03-08',
+      name == 'Home_meet_NCSU.csv' ~ '2024-02-02',
+      name == 'Home_meet_PITT.csv' ~ '2024-01-21',
+      name == 'Home_meet_UNC.csv' ~ '2024-02-23',
+      name == 'NCAA_champ.csv' ~ '2024-04-04'     
+    )
+  }
+}
+
+
+# Add in placing in each event
+
+for(i in 1:length(meetFiles)){
+  mergedData[[i]] <- mergedData[[i]] |>
+    group_by(Event) |>
+    mutate(Place = rank(-1*as.numeric(Score), ties.method = 'min'))
+}
+
+
+# Add in team placing in each event
+
+for(i in 1:length(meetFiles)){
+  mergedData[[i]] <- mergedData[[i]] |>
+    group_by(Event, Team) |>
+    mutate(PlaceTeam = rank(-1*as.numeric(Score), ties.method = 'first'))
+}
+
+# Final row binding into one data frame
+
+
+finalProduct <- bind_rows(mergedData)
+```
+
+
+
+```{r}
+# Some team names are represented under two different values:
+
+# NC State and North Carolina State
+# CU and Clemson
+
+## Fix team names:
+
+for(i in 1:dim(finalProduct)[1]){
+  if(finalProduct$Team[i] == 'CU'){
+    finalProduct$Team[i] <- 'Clemson'
+  }
+  else if(finalProduct$Team[i] == 'North Carolina State'){
+    finalProduct$Team[i] <- 'NC State'
+  }
+}
+```
+
+
+```{r}
+# Score corrections for individual extra competitors:
+
+## vs. Air Force: Maggie Holman's 9.9 on Floor is an extra score and will not count; adjust rank
+
+finalProduct <- finalProduct |>
+  mutate(PlaceTeam = case_when(
+    Match == 'vs Air Force' & Event == 'FLOOR' & Name == 'Maggie Holman' ~ 6, #To account for her score not counting
+    Match == 'vs Air Force' & Event == 'FLOOR' & Name == 'Rebecca Wells' ~ 5, #Real fifth score
+    .default = PlaceTeam)
+  )
+
+## at Pitt: Kennedy Duke's 9.725 on Beam is an extra score and will not count; adjust rank
+
+finalProduct <- finalProduct |>
+  mutate(PlaceTeam = case_when(
+    Match == 'at Pitt' & Event == 'BEAM' & Name == 'Kennedy Duke' ~ 6, #To account for her score not counting
+    Match == 'at Pitt' & Event == 'BEAM' & Name == 'Julie Madso' ~ 5, #Real fifth score
+    .default = PlaceTeam)
+  )
+
+## vs UNC: Several extra gymnasts scored above scoring gymnasts for UNC; adjust ranks
+
+finalProduct <- finalProduct |>
+  mutate(PlaceTeam = case_when(
+    Match == 'vs UNC' & Event == 'VAULT' & Name == 'Elly King' ~ 6,
+    Match == 'vs UNC' & Event == 'VAULT' & Name == 'Paige Prejean' ~ 5, 
+    Match == 'vs UNC' & Event == 'BARS' & Name == 'Amy Wozniak' ~ 6,
+    Match == 'vs UNC' & Event == 'BARS' & Name == 'Jamie Shearer' ~ 5, 
+    Match == 'vs UNC' & Event == 'BEAM' & Name == 'Jamie Shearer' ~ 6, 
+    Match == 'vs UNC' & Event == 'BEAM' & Name == 'Elly King' ~ 4, #Tie for 4th/5th place with another correctly tagged gymnast
+    .default = PlaceTeam)
+  )
+
+
+## In the quad meet: Oklahoma's Faith Torrez is incorrectly scored as a 9.9 instead of her actual 9.95 on vault. Corrections required:
+
+# Fix Faith's score
+# Make her ranked 1st overall and 1st on Oklahoma
+# Hannah Scheible and Jordan Bowers should be ranked 2nd overall and 2nd on Oklahoma
+# Madison Minner should be ranked 4th overall
+
+finalProduct <- finalProduct |>
+  mutate(
+    Score = case_when(
+      Match == 'at TWU' & Event == 'VAULT' & Name == 'Faith Torrez' ~ '9.95',
+      .default = Score
+    ),
+    Place = case_when(
+      Match == 'at TWU' & Event == 'VAULT' & Name == 'Faith Torrez' ~ 1,
+      Match == 'at TWU' & Event == 'VAULT' & Name == 'Hannah Scheible' ~ 2,
+      Match == 'at TWU' & Event == 'VAULT' & Name == 'Jordan Bowers' ~ 2,
+      Match == 'at TWU' & Event == 'VAULT' & Name == 'Madison Minner' ~ 4,
+      .default = Place
+    ),
+    PlaceTeam = case_when(
+      Match == 'at TWU' & Event == 'VAULT' & Name == 'Faith Torrez' ~ 1,
+      Match == 'at TWU' & Event == 'VAULT' & Name == 'Hannah Scheible' ~ 2,
+      Match == 'at TWU' & Event == 'VAULT' & Name == 'Jordan Bowers' ~ 2,
+      .default = PlaceTeam
+    )
+  )
+
+```
+
+
+
+
+```{r}
+# Send to an Excel file to place into Tableau
+## Excel used instead of CSV to not cause any errors in above code
+write_xlsx(finalProduct, 'Clemson_2024_Gymnastics.xlsx')
+```
+
+
