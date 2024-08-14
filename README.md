@@ -13,3 +13,6 @@ This folder contains code projects from Clemson University's online Master's in 
 - Advanced Data Analytics (DSA 8590)
 
 The program taught R, Python, SQL, and Tableau while teaching machine learning concepts such as regression, random forests, Naive Bayesian models, Principal Component Analysis, and other techniques.
+
+
+More information on the program can be found here: [https://www.clemson.edu/graduate/academics/ms-dsa/index.html]
